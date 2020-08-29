@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package pb;
+
+// master rpc
+service MasterRpc {
+    // 心跳
+    rpc Ping(Empty) returns(Empty);
+    // 注册
+    rpc Register(RegisterReq) returns(RegisterAck);
+    // 挂载节点
+    rpc Mount(MountReq) returns(Empty);
+    // 移除节点
+    rpc UnMount(MountReq) returns(Empty);
+    // 移除所有节点
+    rpc UnMountAll(Empty) returns(Empty);
+    // 同步挂载点
+    rpc Sync(SyncReq) returns(stream MountLogItem);
+}
+
+// peer rpc
+service PeerRpc {
+    // 远程调用
+    rpc Call(CallReq) returns(CallAck);
+    // 双向流抽象
+    rpc Stream(stream StreamMsg) returns(stream StreamMsg);
+}
+
+message Empty {}
+
+// ============= 注册节点 ============
+message RegisterReq {
+    string PeerNode = 1;
+    int64 MasterKey = 2;
+}
+
+message RegisterAck {
+    int64 MasterKey = 1;
+}
+
+// ============= 挂载 ==============
+
+message MountReq {
+    string Name = 1;
+}
+
+// ============= 同步挂载点 ===========
+message SyncReq {
+    int64 Id = 1;
+}
+message MountLogItem {
+    int64  Id       = 1;
+    bool   IsAdd 	= 2;	// 增加为true删除为false
+    string Name     = 3;    // 挂载点
+    string PeerAddr = 4;    // 节点地址
+}
+message SyncAck {
+    repeated MountLogItem List = 1;
+}
+
+// ============= 远程调用 =============
+
+message CallReq {
+    string Path = 1;
+    string Method  =2;
+    repeated bytes Args = 3;
+}
+
+message CallAck {
+    repeated bytes Args = 1;
+}
+
+// ============= 流抽象 ==============
+message StreamMsg {
+    oneof StreamType {
+        CallReq Req = 1;
+        Bytes Data = 2;
+    }
+}
+message Bytes {
+    bytes Bytes = 3;
+}

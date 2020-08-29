@@ -1,0 +1,228 @@
+package example
+
+import (
+	"fmt"
+	"testing"
+	"snow"
+	"time"
+)
+
+type Root struct {
+	*snow.Node
+}
+
+type User struct {
+	*snow.Node
+	name string
+}
+
+// 挂载回调
+func (u *User) OnMount() {
+	fmt.Println("mount")
+	return
+}
+
+//
+func (u *User) OnUnMount() {
+	fmt.Println("unmount")
+	return
+}
+
+func (u *User) Name() string {
+	fmt.Println("u.Name() = ", u.name)
+	return u.name
+}
+
+func (u *User) SetAge(age *int64) *int64 {
+	fmt.Println("age =", *age)
+	return age
+}
+
+func TestUserNode(t *testing.T) {
+	userManage,_ := snow.Mount("user_manager", &User{})
+
+	fmt.Println("isLocal()", userManage.IsLocal())
+
+	err := userManage.Call("Name", func(name string) {
+		fmt.Println("call done")
+	})
+	fmt.Println("call err:", err)
+}
+
+// Master
+func TestServeMaster(t *testing.T) {
+	err,done := snow.ServeMaster("127.0.0.1:8001", "127.0.0.1:8001")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() {
+		<-done
+	}()
+
+	fmt.Println(err)
+}
+
+// Peer
+func TestServePeer(t *testing.T) {
+	err,done := snow.ServePeer("127.0.0.1:8001", "127.0.0.1:8002", "127.0.0.1:8002")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() {
+		<-done
+	}()
+
+	_, err = snow.Mount("james", &User{name: "james"})
+
+	<-time.After(3000*time.Second)
+	fmt.Println(err)
+}
+
+func TestServePeer2(t *testing.T) {
+	err,done := snow.ServePeer("127.0.0.1:8000", "127.0.0.1:8003", "127.0.0.1:8003")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() {
+		<-done
+	}()
+
+	_, err = snow.Mount("smith", &User{})
+
+	<-time.After(5*time.Second)
+	_ = snow.UnMount("smith")
+
+	snow.Find("")
+	<-time.After(3000*time.Second)
+	fmt.Println(err)
+
+}
+
+// 路径搜索算法
+func TestFindPath(t *testing.T) {
+	err,done := snow.ServePeer("127.0.0.1:8001", "127.0.0.1:8004", "127.0.0.1:8004")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() {
+		<-done
+	}()
+
+	_, _ = snow.Mount("lucy", &User{name: "lucy"})
+
+	lucy := snow.Find("lucy")
+	fmt.Println(lucy)
+	err = lucy.Call("Name", func(name string) {
+		fmt.Println("name =", name)
+	})
+
+	lucy.Mount("jack", &User{name: "jack"})
+	lucy.Find("jack").Call("Name", func(name string) {
+		fmt.Println("jack =", name)
+	})
+
+	err = snow.Find("lucy/jack").Call("Name", func(name string) {
+		fmt.Println("lucy/jack =", name)
+	})
+	fmt.Println(err)
+
+	err = snow.Find("/lucy/jack").Call("Name", func(name string) {
+		fmt.Println("/lucy/jack =", name)
+	})
+	fmt.Println(err)
+
+	//snow.Find("james").Call("Name", func(name string) {
+	//	fmt.Println("james =", name)
+	//})
+
+	//snow.Find("/james/stack").Call("Name", func(name string) {
+	//	fmt.Println("/james/stack =", name)
+	//})
+
+	//snow.Find("james").Find("stack").Call("Name", func(name string) {
+	//	fmt.Println("/james/stack =", name)
+	//})
+
+	//notfound := snow.Find("/dsa/sadf")
+	//fmt.Println("notfound =", notfound)
+
+}
+
+// 测试远程call
+func TestPeerCall(t *testing.T) {
+	err,done := snow.ServePeer("127.0.0.1:8001", "127.0.0.1:8004", "127.0.0.1:8004")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() {
+		<-done
+	}()
+
+	err = snow.Find("james").Call("Name", func(name string) {
+		fmt.Println("call =", name)
+	})
+	fmt.Println("call err =", err)
+
+	err = snow.Find("james").Call("SetAge", 17, func(age int64) {
+		fmt.Println("call SetAge =", age)
+	})
+	fmt.Println("call err =", err)
+
+
+}
+
+func (u *User) StreamTest(name string, stream *snow.Stream) {
+	fmt.Println("user.StreamTest", name)
+	for {
+		data,err := stream.ReadData()
+		if err != nil {
+			fmt.Println("u read err:", err)
+			break
+		}
+		fmt.Println("u read", string(data), err)
+		fmt.Println(stream.Write(data))
+		fmt.Println(stream.Write(data))
+		fmt.Println("close err:", stream.Close())
+		fmt.Println("close err:", stream.Close())
+	}
+}
+
+//
+func TestStream(t *testing.T) {
+	err,done := snow.ServeMaster("", "")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() {
+		<-done
+	}()
+
+	node,err := snow.Mount("test", &User{})
+	fmt.Println("mount err:", err)
+
+	var stream *snow.Stream
+	fmt.Println("stream start")
+	stream,err = node.Stream("StreamTest", "james")
+	fmt.Println("stream err:", err)
+
+	fmt.Println("stream write start")
+	_,err = stream.Write([]byte("hello"))
+	fmt.Println("stream write err:", err)
+	for {
+		msg,err := stream.ReadData()
+		if err != nil {
+			fmt.Println("t read err:", err)
+			_, err = stream.Write([]byte("123"))
+			fmt.Println("t write err:", err)
+			break
+		}
+		fmt.Println("t read", string(msg), err)
+	}
+
+}
