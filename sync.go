@@ -45,7 +45,7 @@ func (r *rootNode) syncMountLog(master pb.MasterRpcClient) error {
 				if log.IsAdd {
 					_,_ = r.Mount(log.Name, &peerNode{peerAddr:log.PeerAddr})
 				}else {
-					_ = r.UnMount(log.Name)
+					_ = r.UnMountChild(log.Name)
 				}
 			}
 		}

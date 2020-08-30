@@ -40,7 +40,7 @@ func Mount(name string, node interface{}) (*Node, error) {
 
 // 删除挂载节点
 func UnMount(name string) error {
-	return root.UnMount(name)
+	return root.UnMountChild(name)
 }
 
 // 查询节点

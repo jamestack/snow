@@ -176,7 +176,7 @@ func (r *rootNode) addSyncLog(mountOrUnMount bool, name string, isAdd bool, peer
 			if isAdd {
 				_, err = root.Mount(name, &peerNode{peerAddr: peerAddr})
 			}else {
-				err = root.UnMount(name)
+				err = root.UnMountChild(name)
 			}
 			if err != nil {
 				return err

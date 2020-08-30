@@ -16,7 +16,8 @@ import (
 type localNode struct {
 	lock    sync.Mutex
 	//parent *Node
-	//name 	string
+	name 	string
+	pNode   *Node   // 父节点
 	iNode   interface{}
 	childes map[string]*Node // 子节点
 }
@@ -48,7 +49,7 @@ func newNode(name string, node interface{}) *Node {
 	if peerNode,ok := node.(*peerNode); !ok {
 		return &Node{
 			localNode: &localNode{
-				//name: name,
+				name: name,
 				iNode:  node,
 			},
 		}
@@ -179,6 +180,10 @@ func (i *Node) Mount(name string, node interface{}) (*Node, error) {
 	}
 
 	newNode := newNode(name,node)
+	if newNode.IsLocal() {
+		newNode.pNode = i
+	}
+
 	if !isPeerNode {
 		//newNode.parent = i
 		iNodefield.Set(reflect.ValueOf(newNode))
@@ -194,7 +199,7 @@ func (i *Node) Mount(name string, node interface{}) (*Node, error) {
 	return newNode, nil
 }
 
-func (i *Node) UnMount(name string) error {
+func (i *Node) UnMountChild(name string) error {
 	if i == nil {
 		return errors.New("node is nil")
 	}
@@ -224,6 +229,16 @@ func (i *Node) UnMount(name string) error {
 	}
 
 	return nil
+}
+
+func (i *Node) UnMount() error {
+	if !i.IsLocal() {
+		return errors.New("can't unmount remote node")
+	}
+	if i.IsRoot() {
+		return errors.New("can't unmount root node")
+	}
+	return root.pNode.UnMountChild(i.name)
 }
 
 // 是否为根节点

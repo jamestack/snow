@@ -650,7 +650,7 @@ func (c *masterRpcClient) Mount(ctx context.Context, in *MountReq, opts ...grpc.
 
 func (c *masterRpcClient) UnMount(ctx context.Context, in *MountReq, opts ...grpc.CallOption) (*Empty, error) {
 	out := new(Empty)
-	err := c.cc.Invoke(ctx, "/pb.MasterRpc/UnMount", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/pb.MasterRpc/UnMountChild", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +728,7 @@ func (*UnimplementedMasterRpcServer) Mount(ctx context.Context, req *MountReq) (
 	return nil, status.Errorf(codes.Unimplemented, "method Mount not implemented")
 }
 func (*UnimplementedMasterRpcServer) UnMount(ctx context.Context, req *MountReq) (*Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UnMount not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method UnMountChild not implemented")
 }
 func (*UnimplementedMasterRpcServer) UnMountAll(ctx context.Context, req *Empty) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UnMountAll not implemented")
@@ -805,7 +805,7 @@ func _MasterRpc_UnMount_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/pb.MasterRpc/UnMount",
+		FullMethod: "/pb.MasterRpc/UnMountChild",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MasterRpcServer).UnMount(ctx, req.(*MountReq))
@@ -869,7 +869,7 @@ var _MasterRpc_serviceDesc = grpc.ServiceDesc{
 			Handler:    _MasterRpc_Mount_Handler,
 		},
 		{
-			MethodName: "UnMount",
+			MethodName: "UnMountChild",
 			Handler:    _MasterRpc_UnMount_Handler,
 		},
 		{
