@@ -193,7 +193,14 @@ func (i *Node) Mount(name string, node interface{}) (*Node, error) {
 
 	// 执行回调
 	if n,ok := node.(HookMount); ok {
-		n.OnMount()
+		go func() {
+			defer func() {
+				if err := recover(); err != nil {
+					fmt.Println("mount hook panic:", err)
+				}
+			}()
+			n.OnMount()
+		}()
 	}
 
 	return newNode, nil
