@@ -330,7 +330,6 @@ func (c *Cluster) Mount(name string, iNode interface{}) (*Node, error) {
 			}()
 			i.OnMount()
 		}()
-
 	}
 	return newNode, nil
 }
@@ -353,6 +352,13 @@ func (c *Cluster) UnMount(name string) error {
 	}
 
 	key := serviceName +"/"+ nodeName
+
+	// 检测是否为本地挂载点，拒绝取消挂载远程节点
+	node,ok := c.localNodes.Load(key)
+	if !ok {
+		return errors.New("not found local node")
+	}
+
 	// 同步挂载到远程挂载点
 	err := c.mountProcessor.UnMountNode(serviceName, nodeName)
 	if err != nil {
@@ -361,6 +367,19 @@ func (c *Cluster) UnMount(name string) error {
 
 	// 写入本地挂载点
 	c.localNodes.Delete(key)
+
+	iNode := node.(*Node).iNode
+	if i,ok := iNode.(HookUnMount);ok {
+		go func() {
+			defer func() {
+				if err := recover(); err != nil {
+					fmt.Printf("%T OnUnMount() panic: %v\n", iNode, err)
+				}
+			}()
+			i.OnUnMount()
+		}()
+	}
+
 	return nil
 }
 
