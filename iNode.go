@@ -23,7 +23,7 @@ type peerNode struct {
 
 // -------------- iNode内部实现 ------------
 type Node struct {
-	cluster *Cluster
+	*Cluster
 	addr string
 	serviceName string
 	nodeName string
@@ -32,12 +32,17 @@ type Node struct {
 
 // 是否为本地节点
 func (i *Node) IsLocal() bool {
-	return i.addr == i.cluster.peerAddr
+	return i.addr == i.Cluster.peerAddr
 }
 
 // 是否为远程节点
 func (i *Node) IsRemote() bool {
-	return i.addr != i.cluster.peerAddr
+	return i.addr != i.Cluster.peerAddr
+}
+
+// 取消挂载
+func (i *Node) UnMount() error {
+	return i.Cluster.UnMount(i.serviceName+"/"+i.nodeName)
 }
 
 // 执行方法调用
@@ -135,7 +140,7 @@ func (i *Node) call(method string, args ...interface{}) (err error) {
 func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 	// 远程调用
 	var rpc pb.PeerRpcClient
-	rpc,err = i.cluster.getRpcClient(i.addr)
+	rpc,err = i.Cluster.getRpcClient(i.addr)
 	if err != nil {
 		return err
 	}
@@ -233,7 +238,7 @@ func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err e
 			write: &x,
 		})...)
 	}else {
-		rpc,err := i.cluster.getRpcClient(i.addr)
+		rpc,err := i.Cluster.getRpcClient(i.addr)
 		if err != nil {
 			return nil, err
 		}

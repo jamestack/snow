@@ -435,7 +435,7 @@ func (p *PeerRpc) Check(ctx context.Context, req *pb.HealthCheckRequest) (*pb.He
 
 	if req.Service != "" {
 		s := strings.Split(req.Service[1:], "/")
-		_,ok := p.cluster.iNodes.Load(s[0] +"/"+ s[1])
+		_,ok := p.cluster.localNodes.Load(s[0] +"/"+ s[1])
 		if ok {
 			status = pb.HealthCheckResponse_SERVING
 		}else {

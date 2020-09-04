@@ -27,7 +27,7 @@ func TestBenchNodeA(t *testing.T) {
 		<-done
 	}()
 
-	err = cluster.Mount("james", &User{name: "james"})
+	_,err = cluster.Mount("james", &User{name: "james"})
 	fmt.Println(err)
 
 	<-time.After(60*time.Minute)
@@ -45,7 +45,7 @@ func TestBenchNodeB(t *testing.T) {
 	}()
 
 
-	err = cluster.Mount("jacks", &User{name: "jacks"})
+	jacks, err := cluster.Mount("jacks", &User{name: "jacks"})
 	if err != nil {
 		fmt.Println("mount", err)
 		return
@@ -57,26 +57,26 @@ func TestBenchNodeB(t *testing.T) {
 	log.Println("local rpc start")
 	for i:=0;i<MAX_ROUND;i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		node, err := cluster.Find("jacks")
-		if err != nil {
-			panic(err)
-		}
-		node.Call("Play", name, func(name string) {
+		err = jacks.Call("Play", name, func(name string) {
 			//fmt.Println("play done", name)
 		})
+		if err != nil {
+			fmt.Println("end", err)
+			return
+		}
 	}
 	log.Println("local rpc end")
 	log.Println()
 
+	james,err := cluster.Find("james")
+	if err != nil {
+		panic(err)
+	}
 	// 远程调用
 	log.Println("rpc start")
 	for i:=0;i<MAX_ROUND;i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		node,err := cluster.Find("james")
-		if err != nil {
-			panic(err)
-		}
-		node.Call("Play", name, func(name string) {
+		err = james.Call("Play", name, func(name string) {
 			//fmt.Println("play done", name)
 		})
 		if err != nil {
@@ -94,11 +94,7 @@ func TestBenchNodeB(t *testing.T) {
 		name := fmt.Sprintf("section-%d", i+1)
 		wg.Add(1)
 		go func() {
-			node,err := cluster.Find("james")
-			if err != nil {
-				panic(err)
-			}
-			err = node.Call("Play", name, func(name string) {
+			err = james.Call("Play", name, func(name string) {
 				//fmt.Println("play done", name)
 			})
 			wg.Done()

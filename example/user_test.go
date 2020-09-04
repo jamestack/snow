@@ -40,12 +40,12 @@ func (u *User) SetAge(age *int64) *int64 {
 func TestUserNode(t *testing.T) {
 	cluster := snow.NewClusterWithLocal()
 
-	err := cluster.Mount("UserManager", &User{
+	userManager,err := cluster.Mount("UserManager", &User{
 		name: "james",
 	})
-
-	userManager,err := cluster.Find("UserManager")
-	fmt.Println(err)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	err = userManager.Call("Name", func(name string) {
 		fmt.Println("call done")
@@ -60,13 +60,10 @@ func TestConsul(t *testing.T) {
 		<- done
 	}()
 
-	err = cluster.Mount("UserManager", &User{
+	userManager,err := cluster.Mount("UserManager", &User{
 		name: "james",
 	})
 
-	fmt.Println(err)
-
-	userManager,err := cluster.Find("UserManager")
 	fmt.Println(err)
 
 	list,err := cluster.FindAll("UserManager")

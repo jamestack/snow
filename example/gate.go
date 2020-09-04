@@ -11,10 +11,10 @@ import (
 
 // 分布式网关-节点
 type Gate struct {
+	*snow.Node
 	ListenAddr string  // 网关监听的端口
 	TargetNode string  // 目标游戏节点
 	conn sync.Map // string: *net.Conn
-	cluster *snow.Cluster
 }
 
 var upgrader = websocket.Upgrader{
@@ -45,7 +45,7 @@ func (gate *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer gate.conn.Delete(id)
 
 	// 将数据发送给对应的游戏节点
-	game,_ := gate.cluster.Find(gate.TargetNode)
+	game,_ := gate.Find(gate.TargetNode)
 	if game == nil {
 		fmt.Println("snow.Find("+gate.TargetNode+") == nil")
 		return

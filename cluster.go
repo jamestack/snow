@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"google.golang.org/grpc"
 	"net"
+	"reflect"
 	"snow/mount_processor"
 	"snow/pb"
 	"strings"
@@ -25,7 +26,7 @@ type Cluster struct {
 	findCache sync.Map // map[string]*mount_processor.Node
 	findAllCache sync.Map // map[string]*mount_processor.Service
 	// 本地挂载点
-	iNodes sync.Map  // map[string]interface{}
+	localNodes sync.Map // map[string]interface{}
 	// 监听地址
 	listenAddr string
 	// 对外暴露地址
@@ -156,14 +157,8 @@ func (c *Cluster) Find(name string) (*Node, error) {
 
 	key := serviceName +"/"+ nodeName
 	// 本地节点
-	if iNode,ok := c.iNodes.Load(key);ok {
-		return &Node{
-			cluster: c,
-			addr: c.peerAddr,
-			serviceName: serviceName,
-			nodeName: nodeName,
-			iNode: iNode,
-		}, nil
+	if node,ok := c.localNodes.Load(key);ok {
+		return node.(*Node), nil
 	}
 
 	// 远程节点
@@ -173,7 +168,7 @@ func (c *Cluster) Find(name string) (*Node, error) {
 	}
 
 	return &Node{
-		cluster: c,
+		Cluster: c,
 		addr: node.Address,
 		serviceName: serviceName,
 		nodeName: nodeName,
@@ -215,21 +210,28 @@ func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 		return nil, err
 	}
 
-	list := make([]*Node, len(service.Nodes))
-	for i,node := range service.Nodes {
-		item := &Node{
-			cluster: c,
-			addr: node.Address,
-			serviceName: serviceName,
-			nodeName: node.NodeName,
-			iNode: nil,
-		}
+	list := []*Node{}
+	for _,node := range service.Nodes {
+		var item *Node
 
 		if node.Address == c.peerAddr {
-			item.iNode,_ = c.iNodes.Load(serviceName + "/" + node.NodeName)
+			iNode,ok := c.localNodes.Load(serviceName + "/" + node.NodeName)
+			if ok {
+				item = iNode.(*Node)
+			}else {
+				continue
+			}
+		} else {
+			item = &Node{
+				Cluster: c,
+				addr: node.Address,
+				serviceName: serviceName,
+				nodeName: node.NodeName,
+				iNode: nil,
+			}
 		}
 
-		list[i] = item
+		list = append(list, item)
 	}
 
 	return list, nil
@@ -263,7 +265,7 @@ func (c *Cluster) findAll(serviceName string) (*mount_processor.Service, error) 
 }
 
 // 挂载某节点
-func (c *Cluster) Mount(name string, iNode interface{}) error {
+func (c *Cluster) Mount(name string, iNode interface{}) (*Node, error) {
 	var serviceName string
 	var nodeName string
 	name = strings.Trim(name, "/")
@@ -277,23 +279,47 @@ func (c *Cluster) Mount(name string, iNode interface{}) error {
 		serviceName = list[0]
 		nodeName = list[1]
 	default:
-		return errors.New("mount name not validate: ["+name+"]")
+		return nil, errors.New("mount name not validate: ["+name+"]")
 	}
 
 	key := serviceName + "/" + nodeName
 	// 检测重复挂载
-	if _,ok := c.iNodes.Load(key);ok {
-		return errors.New("repeated mount")
+	if _,ok := c.localNodes.Load(key);ok {
+		return nil, errors.New("repeated mount")
+	}
+
+	// 挂载本地节点
+	vf := reflect.ValueOf(iNode)
+	if vf.Kind() != reflect.Ptr {
+		return nil, errors.New("must pointer.")
+	}
+
+	if field,ok := reflect.TypeOf(iNode).Elem().FieldByName("Node"); !ok || !field.Anonymous {
+		return nil, errors.New("not found Anonymous Field *snow.Node")
+	}
+
+	iNodefield := vf.Elem().FieldByName("Node")
+	if iNodefield.IsNil() == false {
+		return nil, errors.New("*snow.Node must nil")
 	}
 
 	// 同步挂载到远程挂载点
 	err := c.mountProcessor.MountNode(serviceName, nodeName, c.peerAddr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	newNode := &Node{
+		Cluster: c,
+		addr: c.peerAddr,
+		serviceName: serviceName,
+		nodeName: nodeName,
+		iNode:iNode,
+	}
+	iNodefield.Set(reflect.ValueOf(newNode))
+
 	// 写入本地挂载点
-	c.iNodes.Store(key, iNode)
+	c.localNodes.Store(key, newNode)
 
 	if i,ok := iNode.(HookMount);ok {
 		go func() {
@@ -306,7 +332,7 @@ func (c *Cluster) Mount(name string, iNode interface{}) error {
 		}()
 
 	}
-	return nil
+	return newNode, nil
 }
 
 // 取消挂载某节点
@@ -334,7 +360,7 @@ func (c *Cluster) UnMount(name string) error {
 	}
 
 	// 写入本地挂载点
-	c.iNodes.Delete(key)
+	c.localNodes.Delete(key)
 	return nil
 }
 
