@@ -48,8 +48,8 @@ func (p *Person) Say(name string) string {
 }
 
 func main() {
-    cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
-    done,err := cluster.Serve()
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
+	done, err := cluster.Serve()
 	if err != nil {
 		fmt.Println("snow.ServeMaster", err)
 		return
@@ -75,23 +75,23 @@ import (
 )
 
 func main() {
-    cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
-    done,err := cluster.Serve()
-    if err != nil {
-        fmt.Println("snow.ServeMaster", err)
-        return
-    }
-    defer func() {
-        <-done
-        fmt.Println("Serve End", err)
-    }()
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+	done, err := cluster.Serve()
+	if err != nil {
+		fmt.Println("snow.ServeMaster", err)
+		return
+	}
+	defer func() {
+		<-done
+		fmt.Println("Serve End", err)
+	}()
 
 	// 等待首次挂载点同步完
 	<-time.After(3 * time.Second)
 
 	// 查找某个要通信的节点
-	james,err := cluster.Find("james")
-    fmt.Println(err)
+	james, err := cluster.Find("james")
+	fmt.Println(err)
 	// 节点方法调用
 	err = james.Call("Say", "jack", func(res string) {
 		fmt.Println(res)
