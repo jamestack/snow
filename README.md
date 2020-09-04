@@ -48,7 +48,7 @@ func (p *Person) Say(name string) string {
 }
 
 func main() {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
+    cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
     done,err := cluster.Serve()
 	if err != nil {
 		fmt.Println("snow.ServeMaster", err)
@@ -75,7 +75,7 @@ import (
 )
 
 func main() {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+    cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
     done,err := cluster.Serve()
     if err != nil {
         fmt.Println("snow.ServeMaster", err)
