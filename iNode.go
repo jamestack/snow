@@ -7,19 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
-	"sync"
 	"snow/pb"
 )
 
 // 本地节点
 type localNode struct {
-	lock    sync.Mutex
-	//parent *Node
-	name 	string
-	pNode   *Node   // 父节点
 	iNode   interface{}
-	childes map[string]*Node // 子节点
 }
 
 // 远程同伴节点
@@ -30,301 +23,21 @@ type peerNode struct {
 
 // -------------- iNode内部实现 ------------
 type Node struct {
-	*localNode
-	*peerNode
+	cluster *Cluster
+	addr string
+	serviceName string
+	nodeName string
+	iNode   interface{}
 }
 
 // 是否为本地节点
 func (i *Node) IsLocal() bool {
-	return i.localNode != nil
+	return i.addr == i.cluster.peerAddr
 }
 
 // 是否为远程节点
 func (i *Node) IsRemote() bool {
-	return i.peerNode != nil
-}
-
-// 初始化一个节点
-func newNode(name string, node interface{}) *Node {
-	if peerNode,ok := node.(*peerNode); !ok {
-		return &Node{
-			localNode: &localNode{
-				name: name,
-				iNode:  node,
-			},
-		}
-	}else {
-		return &Node{
-			peerNode: peerNode,
-		}
-	}
-}
-
-func (i *Node) getChild(name string) *Node {
-	i.lock.Lock()
-	defer i.lock.Unlock()
-
-	if i.childes == nil {
-		return nil
-	}
-
-	return i.childes[name]
-}
-
-func (i *Node) addChild(name string, node *Node) {
-	i.lock.Lock()
-	defer i.lock.Unlock()
-
-	if i.childes == nil {
-		i.childes = make(map[string]*Node)
-	}
-
-	i.childes[name] = node
-}
-
-func (i *Node) removeChild(name string) {
-	i.lock.Lock()
-	defer i.lock.Unlock()
-
-	if i.childes == nil {
-		return
-	}
-
-	delete(i.childes, name)
-}
-
-func (i *Node) RangeChild(fn func(name string, node *Node) bool) {
-	i.lock.Lock()
-	for k,v := range i.childes {
-		i.lock.Unlock()
-		ctl, err := func() (ctl bool, err error){
-			defer func() {
-				errPanic := recover()
-				if errPanic != nil {
-					err = fmt.Errorf("%v", errPanic)
-				}
-			}()
-			ctl = fn(k,v)
-			return
-		}()
-		if err != nil {
-			return
-		}
-		if !ctl {
-			break
-		}
-
-		i.lock.Lock()
-	}
-	i.lock.Unlock()
-}
-
-// 挂载子节点
-func (i *Node) Mount(name string, node interface{}) (*Node, error) {
-	if i == nil {
-		return nil, errors.New("node is nil")
-	}
-
-	if !i.IsLocal() {
-		return nil, errors.New("must mount local node")
-	}
-	if name == "" {
-		return nil, errors.New("name is empty")
-	}
-
-	if strings.Contains(name, "/") {
-		return nil, errors.New("can't contains \"/\"")
-	}
-
-	var iNodefield reflect.Value
-	isPeerNode := false
-	//var peerNodes *peerNode
-	if _,isPeerNode = node.(*peerNode); !isPeerNode {
-		// 挂载本地节点
-		vf := reflect.ValueOf(node)
-		if vf.Kind() != reflect.Ptr {
-			return nil, errors.New("must pointer.")
-		}
-
-		if field,ok := reflect.TypeOf(node).Elem().FieldByName("Node"); !ok || !field.Anonymous {
-			return nil, errors.New("not found Anonymous Field *snow.Node")
-		}
-
-		iNodefield = vf.Elem().FieldByName("Node")
-		if iNodefield.IsNil() == false {
-			return nil, errors.New("*snow.Node must nil")
-		}
-	}
-
-	if exNode := i.getChild(name); exNode != nil {
-		return nil, errors.New("mount point is already exist")
-	}
-
-	// 通知Master
-	if i.IsRoot() && !isPeerNode {
-		root := i.iNode.(*rootNode)
-		if !root.isMaster {
-			master,_ := root.getMasterRpc()
-			_, err := master.Mount(context.TODO(), &pb.MountReq{
-				Name: name,
-			})
-			if err != nil{
-				return nil, err
-			}
-		}else {
-			err := root.addSyncLog(false, name, true, root.peerAddr)
-			if err != nil{
-				return nil, err
-			}
-		}
-	}
-
-	newNode := newNode(name,node)
-	if newNode.IsLocal() {
-		newNode.pNode = i
-	}
-
-	if !isPeerNode {
-		//newNode.parent = i
-		iNodefield.Set(reflect.ValueOf(newNode))
-	}
-
-	i.addChild(name, newNode)
-
-	// 执行回调
-	if n,ok := node.(HookMount); ok {
-		go func() {
-			defer func() {
-				if err := recover(); err != nil {
-					fmt.Println("mount hook panic:", err)
-				}
-			}()
-			n.OnMount()
-		}()
-	}
-
-	return newNode, nil
-}
-
-func (i *Node) UnMountChild(name string) error {
-	if i == nil {
-		return errors.New("node is nil")
-	}
-
-	if i.IsRemote() {
-		return errors.New("peerNode UnMount deny")
-	}
-
-	exChild := i.getChild(name)
-	if exChild == nil {
-		return errors.New("child not exist")
-	}
-
-	i.removeChild(name)
-
-	if i.IsRoot() && exChild.IsLocal() {
-		root := i.iNode.(*rootNode)
-		if !i.IsMaster() {
-			master,_ := root.getMasterRpc()
-			_, err := master.UnMount(context.TODO(), &pb.MountReq{
-				Name:                 name,
-			})
-			return err
-		}else {
-			return root.addSyncLog(false, name, false, root.peerAddr)
-		}
-	}
-
-	return nil
-}
-
-func (i *Node) UnMount() error {
-	if !i.IsLocal() {
-		return errors.New("can't unmount remote node")
-	}
-	if i.IsRoot() {
-		return errors.New("can't unmount root node")
-	}
-	return root.pNode.UnMountChild(i.name)
-}
-
-// 是否为根节点
-func (r *Node) IsRoot() bool {
-	if r.IsLocal() {
-		_,ok := r.iNode.(*rootNode)
-		return ok
-	}else {
-		// 不可能拿到远程节点的root
-		return false
-	}
-}
-
-// 是否为Master节点
-func (r *Node) IsMaster() bool {
-	root := root.iNode.(*rootNode)
-	if r.IsLocal() {
-		return root.isMaster
-	}else {
-		return root.peerNode.peerAddr == root.masterAddr
-	}
-}
-
-func (node *Node) Find(name string) *Node {
-	if node == nil || name == "" {
-		return nil
-	}
-
-	path := strings.Split(name, "/")
-
-	if strings.HasPrefix(name, "/") {
-		// 转化为相对路径
-		return root.Find(name[1:])
-	}else {
-		// 一级一级查
-		if node.IsRoot() {
-			child := node.getChild(path[0])
-			if child == nil {
-				return nil
-			}
-			if child.IsLocal() {
-				if len(path) == 1 {
-					return child
-				}else {
-					return child.Find(strings.Join(path[1:], "/"))
-				}
-			}else {
-				return &Node{
-					peerNode:  &peerNode{
-						peerAddr: child.peerAddr,
-						path:     "/"+name,
-					},
-				}
-			}
-		}else {
-			if node.IsLocal() {
-				child := node.getChild(path[0])
-				if child == nil {
-					return nil
-				}
-				if child.IsLocal() {
-					if len(path) == 1 {
-						return child
-					}else {
-						return child.Find(strings.Join(path[1:], "/"))
-					}
-				}
-			}else {
-				return &Node{
-					peerNode:  &peerNode{
-						peerAddr: node.peerAddr,
-						path:     node.path+"/"+name,
-					},
-				}
-			}
-		}
-	}
-
-	return nil
+	return i.addr != i.cluster.peerAddr
 }
 
 // 执行方法调用
@@ -332,7 +45,7 @@ func (i *Node) Call(method string, args ...interface{}) (err error) {
 	defer func() {
 		errPanic := recover()
 		if errPanic != nil {
-			err = fmt.Errorf("panic: %v", errPanic)
+			err = fmt.Errorf("node.Call() panic: %v", errPanic)
 		}
 	}()
 
@@ -422,13 +135,14 @@ func (i *Node) call(method string, args ...interface{}) (err error) {
 func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 	// 远程调用
 	var rpc pb.PeerRpcClient
-	rpc,err = root.iNode.(*rootNode).getPeerRpc(i.peerAddr)
+	rpc,err = i.cluster.getRpcClient(i.addr)
 	if err != nil {
 		return err
 	}
 	var res *pb.CallAck
 	req := &pb.CallReq{
-		Path:   i.path,
+		ServiceName:i.serviceName,
+		NodeName: i.nodeName,
 		Method: method,
 		Args:   nil,
 	}
@@ -519,8 +233,7 @@ func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err e
 			write: &x,
 		})...)
 	}else {
-		root := root.iNode.(*rootNode)
-		rpc,err := root.getPeerRpc(i.peerAddr)
+		rpc,err := i.cluster.getRpcClient(i.addr)
 		if err != nil {
 			return nil, err
 		}
@@ -530,7 +243,8 @@ func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err e
 		}
 		stream.rpcClient = rpcStream
 		req := &pb.CallReq{
-			Path: i.path,
+			ServiceName: i.serviceName,
+			NodeName: i.nodeName,
 			Method: method,
 			Args: [][]byte{},
 		}

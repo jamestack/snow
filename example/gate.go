@@ -3,6 +3,7 @@ package example
 import (
 	"fmt"
 	"github.com/gorilla/websocket"
+	"net"
 	"net/http"
 	"snow"
 	"sync"
@@ -12,8 +13,8 @@ import (
 type Gate struct {
 	ListenAddr string  // 网关监听的端口
 	TargetNode string  // 目标游戏节点
-	*snow.Node
 	conn sync.Map // string: *net.Conn
+	cluster *snow.Cluster
 }
 
 var upgrader = websocket.Upgrader{
@@ -44,7 +45,7 @@ func (gate *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer gate.conn.Delete(id)
 
 	// 将数据发送给对应的游戏节点
-	game := snow.Find(gate.TargetNode)
+	game,_ := gate.cluster.Find(gate.TargetNode)
 	if game == nil {
 		fmt.Println("snow.Find("+gate.TargetNode+") == nil")
 		return
@@ -98,10 +99,14 @@ func (gate *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // 节点挂载事件
 func (gate *Gate) OnMount() {
-	defer gate.UnMount()
-	err := http.ListenAndServe(gate.ListenAddr, gate)
+	listerner,err := net.Listen("tcp", gate.ListenAddr)
 	if err != nil {
-		fmt.Println("gate.listen() err:", err)
+		fmt.Println("net.Listen() err:", err)
+		return
+	}
+	err = http.Serve(listerner, gate)
+	if err != nil {
+		fmt.Println("http.Serve() err:", err)
 		return
 	}
 	fmt.Println("Gate Node start.")

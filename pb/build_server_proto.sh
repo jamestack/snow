@@ -1,6 +1,6 @@
 #! /bin/bash
 
-OUT_PATH="$GOPATH/src/snow/pb"
+OUT_PATH="."
 
 protoc -I . --go_out=plugins=grpc:"$OUT_PATH" *.proto
 

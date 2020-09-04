@@ -3,9 +3,9 @@ package example
 import (
 	"fmt"
 	"log"
+	"snow"
 	"sync"
 	"testing"
-	"snow"
 	"time"
 )
 
@@ -17,7 +17,8 @@ func (u *User) Play(name string) string {
 }
 
 func TestBenchNodeA(t *testing.T) {
-	err,done := snow.ServeMaster("127.0.0.1:8000", "127.0.0.1:8000")
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
+	done,err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -26,24 +27,25 @@ func TestBenchNodeA(t *testing.T) {
 		<-done
 	}()
 
-	_, err = snow.Mount("james", &User{name: "james"})
+	err = cluster.Mount("james", &User{name: "james"})
 	fmt.Println(err)
 
 	<-time.After(60*time.Minute)
 }
 
 func TestBenchNodeB(t *testing.T) {
-	err,done := snow.ServePeer("127.0.0.1:8000", "127.0.0.1:8005", "127.0.0.1:8005")
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+	done,err := cluster.Serve()
 	if err != nil {
-		fmt.Println("serve err:", err)
+		fmt.Println(err)
 		return
 	}
 	defer func() {
-		return
 		<-done
 	}()
 
-	_, err = snow.Mount("jacks", &User{name: "jacks"})
+
+	err = cluster.Mount("jacks", &User{name: "jacks"})
 	if err != nil {
 		fmt.Println("mount", err)
 		return
@@ -55,7 +57,11 @@ func TestBenchNodeB(t *testing.T) {
 	log.Println("local rpc start")
 	for i:=0;i<MAX_ROUND;i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		_ = snow.Find("jacks").Call("Play", name, func(name string) {
+		node, err := cluster.Find("jacks")
+		if err != nil {
+			panic(err)
+		}
+		node.Call("Play", name, func(name string) {
 			//fmt.Println("play done", name)
 		})
 	}
@@ -66,7 +72,11 @@ func TestBenchNodeB(t *testing.T) {
 	log.Println("rpc start")
 	for i:=0;i<MAX_ROUND;i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		err := snow.Find("james").Call("Play", name, func(name string) {
+		node,err := cluster.Find("james")
+		if err != nil {
+			panic(err)
+		}
+		node.Call("Play", name, func(name string) {
 			//fmt.Println("play done", name)
 		})
 		if err != nil {
@@ -84,7 +94,11 @@ func TestBenchNodeB(t *testing.T) {
 		name := fmt.Sprintf("section-%d", i+1)
 		wg.Add(1)
 		go func() {
-			err := snow.Find("james").Call("Play", name, func(name string) {
+			node,err := cluster.Find("james")
+			if err != nil {
+				panic(err)
+			}
+			err = node.Call("Play", name, func(name string) {
 				//fmt.Println("play done", name)
 			})
 			wg.Done()

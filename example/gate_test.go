@@ -8,7 +8,8 @@ import (
 
 // 启动网关节点
 func TestGate(t *testing.T)  {
-	err,done := snow.ServeMaster("127.0.0.1:8000", "127.0.0.1:8000")
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
+	done,err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -18,17 +19,20 @@ func TestGate(t *testing.T)  {
 	}()
 
 	// 挂载3个网关节点
-	_, err = snow.Mount("Gate_1", &Gate{
+	err = cluster.Mount("Gate/1", &Gate{
+		cluster: cluster,
 		ListenAddr: "127.0.0.1:81",
-		TargetNode: "/Game_1",
+		TargetNode: "Game/1",
 	})
-	_, err = snow.Mount("Gate_2", &Gate{
+	err = cluster.Mount("Gate/2", &Gate{
+		cluster: cluster,
 		ListenAddr: "127.0.0.1:82",
-		TargetNode: "/Game_1",
+		TargetNode: "Game/1",
 	})
-	_, err = snow.Mount("Gate_3", &Gate{
+	err = cluster.Mount("Gate/3", &Gate{
+		cluster: cluster,
 		ListenAddr: "127.0.0.1:83",
-		TargetNode: "/Game_1",
+		TargetNode: "Game/1",
 	})
 	fmt.Println("mount err:", err)
 
@@ -36,19 +40,19 @@ func TestGate(t *testing.T)  {
 
 // 启动游戏节点
 func TestGame(t *testing.T)  {
-	err,done := snow.ServePeer("127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8001")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+	done,err := cluster.Serve()
+	fmt.Println(err)
 	defer func() {
 		<-done
 	}()
 
-	game := &Game{}
+	game := &Game{cluster: cluster}
 
 	// 挂载游戏节点
-	_, err = snow.Mount("Game_1", game)
+	err = cluster.Mount("Game/1", game)
 	fmt.Println("mount err:", err)
+
+	fmt.Println(cluster.FindAll("Game"))
 
 }

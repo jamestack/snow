@@ -61,9 +61,10 @@ message SyncAck {
 // ============= 远程调用 =============
 
 message CallReq {
-    string Path = 1;
-    string Method  =2;
-    repeated bytes Args = 3;
+    string ServiceName = 1;
+    string NodeName = 2;
+    string Method  = 3;
+    repeated bytes Args = 4;
 }
 
 message CallAck {

@@ -8,155 +8,156 @@ import (
 	"fmt"
 	"reflect"
 	"snow/pb"
-	"time"
+	"strings"
 )
 
-// ======================== 主节点 ===========================
-type MasterRpc struct {
-	peerAddr string
-}
-
-// 心跳
-func (m *MasterRpc)Ping(context.Context, *pb.Empty) (ack *pb.Empty,err error) {
-	ack = emptyMsg
-	if m.peerAddr == "" {
-		err = errors.New("not register")
-		return
-	}
-
-	root.iNode.(*rootNode).lastPing[m.peerAddr] = time.Now()
-
-	return
-}
-
-// 注册
-func (m *MasterRpc)Register(ctx context.Context, req *pb.RegisterReq) (ack *pb.RegisterAck, err error)  {
-	ack = &pb.RegisterAck{
-		MasterKey: 0,
-	}
-
-	if m.peerAddr != "" && m.peerAddr != req.PeerNode {
-		err = errors.New("is already register")
-		return
-	}
-
-	root := root.iNode.(*rootNode)
-
-	ack.MasterKey = root.masterKey
-	if req.MasterKey != 0 && req.MasterKey != root.masterKey {
-		err = errors.New("register key is already expired")
-		return
-	}
-
-	m.peerAddr = req.PeerNode
-	root.lastPing[m.peerAddr] = time.Now()
-
-	return
-}
-
-// 挂载节点
-func (m *MasterRpc)Mount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty,err error) {
-	ack = emptyMsg
-	if m.peerAddr == "" {
-		err = errors.New("not register")
-		return
-	}
-
-	err = root.iNode.(*rootNode).addSyncLog(true, req.Name, true, m.peerAddr)
-	return
-}
-// 移除节点
-func (m *MasterRpc)UnMount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty,err error) {
-	ack = emptyMsg
-	if m.peerAddr == "" {
-		err = errors.New("not register")
-		return
-	}
-
-	err = root.iNode.(*rootNode).addSyncLog(true, req.Name, false, m.peerAddr)
-	return
-}
-// 移除所有节点
-func (m *MasterRpc)UnMountAll(ctx context.Context,req *pb.Empty) (ack *pb.Empty,err error) {
-	ack = emptyMsg
-	if m.peerAddr == "" {
-		err = errors.New("not register")
-		return
-	}
-
-	root.RangeChild(func(name string, node *Node) bool {
-		if !node.IsLocal() && node.peerNode.peerAddr == m.peerAddr {
-			_ = root.iNode.(*rootNode).addSyncLog(true, name, false, m.peerAddr)
-		}
-		return true
-	})
-
-	return
-}
+//// ======================== 主节点 ===========================
+//type MasterRpc struct {
+//	peerAddr string
+//}
+//
+//// 心跳
+//func (m *MasterRpc)Ping(context.Context, *pb.Empty) (ack *pb.Empty,err error) {
+//	ack = emptyMsg
+//	if m.peerAddr == "" {
+//		err = errors.New("not register")
+//		return
+//	}
+//
+//	//root.iNode.(*rootNode).lastPing[m.peerAddr] = time.Now()
+//
+//	return
+//}
+//
+//// 注册
+//func (m *MasterRpc)Register(ctx context.Context, req *pb.RegisterReq) (ack *pb.RegisterAck, err error)  {
+//	ack = &pb.RegisterAck{
+//		MasterKey: 0,
+//	}
+//
+//	if m.peerAddr != "" && m.peerAddr != req.PeerNode {
+//		err = errors.New("is already register")
+//		return
+//	}
+//
+//	//root := root.iNode.(*rootNode)
+//	//
+//	//ack.MasterKey = root.masterKey
+//	//if req.MasterKey != 0 && req.MasterKey != root.masterKey {
+//	//	err = errors.New("register key is already expired")
+//	//	return
+//	//}
+//	//
+//	//m.peerAddr = req.PeerNode
+//	//root.lastPing[m.peerAddr] = time.Now()
+//
+//	return
+//}
+//
+//// 挂载节点
+//func (m *MasterRpc)Mount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty,err error) {
+//	ack = emptyMsg
+//	if m.peerAddr == "" {
+//		err = errors.New("not register")
+//		return
+//	}
+//
+//	//err = root.iNode.(*rootNode).addSyncLog(true, req.Name, true, m.peerAddr)
+//	return
+//}
+//// 移除节点
+//func (m *MasterRpc)UnMount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty,err error) {
+//	ack = emptyMsg
+//	if m.peerAddr == "" {
+//		err = errors.New("not register")
+//		return
+//	}
+//
+//	//err = root.iNode.(*rootNode).addSyncLog(true, req.Name, false, m.peerAddr)
+//	return
+//}
+//// 移除所有节点
+//func (m *MasterRpc)UnMountAll(ctx context.Context,req *pb.Empty) (ack *pb.Empty,err error) {
+//	ack = emptyMsg
+//	if m.peerAddr == "" {
+//		err = errors.New("not register")
+//		return
+//	}
+//	//
+//	//root.RangeChild(func(name string, node *Node) bool {
+//	//	if !node.IsLocal() && node.peerNode.peerAddr == m.peerAddr {
+//	//		_ = root.iNode.(*rootNode).addSyncLog(true, name, false, m.peerAddr)
+//	//	}
+//	//	return true
+//	//})
+//
+//	return
+//}
 // 同步挂载点
-func (m *MasterRpc)Sync(req *pb.SyncReq, stream pb.MasterRpc_SyncServer) (err error) {
-	lastIndex := 0
-	for {
-		logs := root.iNode.(*rootNode).syncLogs
-		length := len(logs)
-		var list []*SyncLog
-		if length-lastIndex > 0 {
-			list = make([]*SyncLog, length-lastIndex)
-			copy(list, logs[lastIndex:length])
-			lastIndex = length
-		}
-
-		// 去除重复
-		for i:=0;i<len(list)-1;i++ {
-			li := (list)[i]
-			if li == nil {
-				continue
-			}
-			if li.Id <= req.Id {
-				continue
-			}
-			if li.IsAdd == true {
-				for j:=1;j<len(list);j++ {
-					lj := (list)[j]
-					if lj == nil {
-						continue
-					}
-					if lj.Name == li.Name && lj.IsAdd == false {
-						(list)[i] = nil
-						(list)[j] = nil
-						break
-					}
-				}
-			}
-		}
-
-		// Send
-		for _, item := range list {
-			if item == nil {
-				continue
-			}
-			if item.Id <= req.Id {
-				continue
-			}
-			err = stream.Send(&pb.MountLogItem{
-				Id:                   item.Id,
-				IsAdd:                item.IsAdd,
-				Name:                 item.Name,
-				PeerAddr:             item.PeerAddr,
-			})
-			if err != nil {
-				return err
-			}
-		}
-
-		// 检测更新的频率为100毫秒
-		<-time.After(100 * time.Millisecond)
-	}
-
-}
+//func (m *MasterRpc)Sync(req *pb.SyncReq, stream pb.MasterRpc_SyncServer) (err error) {
+//	lastIndex := 0
+//	for {
+//		logs := root.iNode.(*rootNode).syncLogs
+//		length := len(logs)
+//		var list []*SyncLog
+//		if length-lastIndex > 0 {
+//			list = make([]*SyncLog, length-lastIndex)
+//			copy(list, logs[lastIndex:length])
+//			lastIndex = length
+//		}
+//
+//		// 去除重复
+//		for i:=0;i<len(list)-1;i++ {
+//			li := (list)[i]
+//			if li == nil {
+//				continue
+//			}
+//			if li.Id <= req.Id {
+//				continue
+//			}
+//			if li.IsAdd == true {
+//				for j:=1;j<len(list);j++ {
+//					lj := (list)[j]
+//					if lj == nil {
+//						continue
+//					}
+//					if lj.Name == li.Name && lj.IsAdd == false {
+//						(list)[i] = nil
+//						(list)[j] = nil
+//						break
+//					}
+//				}
+//			}
+//		}
+//
+//		// Send
+//		for _, item := range list {
+//			if item == nil {
+//				continue
+//			}
+//			if item.Id <= req.Id {
+//				continue
+//			}
+//			err = stream.Send(&pb.MountLogItem{
+//				Id:                   item.Id,
+//				IsAdd:                item.IsAdd,
+//				Name:                 item.Name,
+//				PeerAddr:             item.PeerAddr,
+//			})
+//			if err != nil {
+//				return err
+//			}
+//		}
+//
+//		// 检测更新的频率为100毫秒
+//		<-time.After(100 * time.Millisecond)
+//	}
+//
+//}
 
 // ============================ 子节点 ===========================
 type PeerRpc struct {
+	cluster *Cluster
 }
 
 // 远程调用
@@ -165,13 +166,13 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 	defer func() {
 		errPanic := recover()
 		if errPanic != nil {
-			err = fmt.Errorf("panic: %v", errPanic)
+			err = fmt.Errorf("PeerRpc.Call() panic: %v", errPanic)
 		}
 	}()
 
-	node := root.Find(req.Path)
-	if node == nil {
-		err = errors.New("node not found")
+	node,err := p.cluster.Find(req.ServiceName +"/"+ req.NodeName)
+	if err != nil {
+		err = errors.New("node not found: " + err.Error())
 		return
 	}
 
@@ -243,7 +244,7 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 	defer func() {
 		errPanic := recover()
 		if errPanic != nil {
-			err = fmt.Errorf("panic: %v", errPanic)
+			err = fmt.Errorf("PeerRpc.Stream() panic: %v", errPanic)
 		}
 	}()
 
@@ -256,9 +257,9 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 		return errors.New("StreamReq not CallReq")
 	}
 
-	node := root.Find(req.Path)
-	if node == nil {
-		err = errors.New("node not found")
+	node, err := p.cluster.Find(req.ServiceName +"/"+ req.NodeName)
+	if err != nil {
+		err = errors.New("node not found: " + err.Error())
 		return
 	}
 
@@ -426,4 +427,30 @@ func (s *Stream) Close() (err error) {
 		err = errors.New("stream not init")
 	}
 	return
+}
+
+// ======================================== consul healthy check =======================================
+func (p *PeerRpc) Check(ctx context.Context, req *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error)  {
+	status := pb.HealthCheckResponse_SERVICE_UNKNOWN
+
+	if req.Service != "" {
+		s := strings.Split(req.Service[1:], "/")
+		_,ok := p.cluster.iNodes.Load(s[0] +"/"+ s[1])
+		if ok {
+			status = pb.HealthCheckResponse_SERVING
+		}else {
+			status = pb.HealthCheckResponse_NOT_SERVING
+		}
+	}
+
+	//fmt.Println("check", req.Service, status)
+
+	return &pb.HealthCheckResponse{
+		Status:  status,
+	}, nil
+}
+
+func (p *PeerRpc) Watch(req *pb.HealthCheckRequest, watcher pb.Health_WatchServer) error  {
+	//fmt.Println("watch", req.Service)
+	return nil
 }
