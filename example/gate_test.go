@@ -8,7 +8,7 @@ import (
 
 // 启动网关节点
 func TestGate(t *testing.T)  {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8000","127.0.0.1:8000")
 	done,err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
@@ -37,7 +37,7 @@ func TestGate(t *testing.T)  {
 
 // 启动游戏节点
 func TestGame(t *testing.T)  {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8001","127.0.0.1:8001")
 	done,err := cluster.Serve()
 	fmt.Println(err)
 	defer func() {

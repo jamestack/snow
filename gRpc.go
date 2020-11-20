@@ -166,6 +166,7 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 	defer func() {
 		errPanic := recover()
 		if errPanic != nil {
+			printStack(errPanic)
 			err = fmt.Errorf("PeerRpc.Call() panic: %v", errPanic)
 		}
 	}()
@@ -195,6 +196,9 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 	decoder :=  gob.NewDecoder(reader)
 	for i:=0;i<fn;i++ {
 		tp := vmt.In(i)
+		if isErr(tp) {
+			tp = reflect.TypeOf(&myErr{})
+		}
 		isPtr := false
 		if tp.Kind() == reflect.Ptr {
 			tp = tp.Elem()
@@ -211,12 +215,21 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 
 		if isPtr {
 			fin[i] = nw
+			if e := nw.Interface().(*myErr); e.IsNil == true {
+				fmt.Println("ddddd")
+				fin[i] = nilValue
+			}
 		}else {
 			fin[i] = nw.Elem()
 		}
 	}
 
-	fout := vm.Call(fin)
+	var fout []reflect.Value
+	if i,ok := node.iNode.(HookCall);ok {
+		fout = i.OnCall(req.Method, vm.Call, fin)
+	}else {
+		fout = vm.Call(fin)
+	}
 
 	ack = &pb.CallAck{
 		Args: make([][]byte, len(fout)),
@@ -224,6 +237,13 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 	buff := bytes.NewBuffer([]byte{})
 	encoder := gob.NewEncoder(buff)
 	for i,v := range fout {
+		if isErr(v.Type()) {
+			if v.IsNil() || v.Interface().(*myErr) == nil {
+				v = reflect.ValueOf(&myErr{S: "", IsNil: true})
+			}else {
+				v = reflect.ValueOf(&myErr{S: v.Interface().(error).Error(), IsNil: false})
+			}
+		}
 		if v.Kind() == reflect.Ptr {
 			v = v.Elem()
 		}
@@ -244,6 +264,7 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 	defer func() {
 		errPanic := recover()
 		if errPanic != nil {
+			printStack(errPanic)
 			err = fmt.Errorf("PeerRpc.Stream() panic: %v", errPanic)
 		}
 	}()
@@ -283,6 +304,9 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 
 	for i:=0;i<fn-1;i++ {
 		tp := vmt.In(i)
+		if isErr(tp) {
+			tp = reflect.TypeOf(&myErr{})
+		}
 		isPtr := false
 		if tp.Kind() == reflect.Ptr {
 			tp = tp.Elem()
@@ -299,6 +323,9 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 
 		if isPtr {
 			fin[i] = nw
+			if e := nw.Interface().(*myErr); e.IsNil == true {
+				fin[i] = nilValue
+			}
 		}else {
 			fin[i] = nw.Elem()
 		}
@@ -309,7 +336,11 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 		rpcServer: stream,
 	})
 
-	_ = vm.Call(fin)
+	if i,ok := node.iNode.(HookCall);ok {
+		_ = i.OnCall(req.Method, vm.Call, fin)
+	}else {
+		_ = vm.Call(fin)
+	}
 	return nil
 }
 
@@ -453,4 +484,56 @@ func (p *PeerRpc) Check(ctx context.Context, req *pb.HealthCheckRequest) (*pb.He
 func (p *PeerRpc) Watch(req *pb.HealthCheckRequest, watcher pb.Health_WatchServer) error  {
 	//fmt.Println("watch", req.Service)
 	return nil
+}
+
+func (p *PeerRpc) MountTime(ctx context.Context,req *pb.NodeName) (ack *pb.MountTimeAck, err error) {
+	ack = &pb.MountTimeAck{}
+	defer func() {
+		errPanic := recover()
+		if errPanic != nil {
+			printStack(errPanic)
+			err = fmt.Errorf("PeerRpc.MountTime() panic: %v", errPanic)
+		}
+	}()
+
+	node,err := p.cluster.Find(req.Str)
+	if err != nil {
+		err = errors.New("node not found: " + err.Error())
+		return
+	}
+
+	if !node.IsLocal() {
+		err = errors.New("not found node")
+		return
+	}
+
+	ack.Unix = node.mTime
+	err = nil
+	return
+}
+
+func (p *PeerRpc) UnMount(ctx context.Context,req *pb.NodeName) (ack *pb.Empty, err error) {
+	ack = &pb.Empty{}
+	defer func() {
+		errPanic := recover()
+		if errPanic != nil {
+			printStack(errPanic)
+			err = fmt.Errorf("PeerRpc.UnMount() panic: %v", errPanic)
+		}
+	}()
+
+	node,err := p.cluster.Find(req.Str)
+	if err != nil {
+		err = errors.New("node not found: " + err.Error())
+		return
+	}
+
+	if !node.IsLocal() {
+		err = errors.New("not found node")
+		return
+	}
+
+	// 取消挂载
+	err = node.UnMount()
+	return
 }

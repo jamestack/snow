@@ -11,18 +11,15 @@ type LocalProcessor struct {
 	storage map[string]*Service //
 }
 
-func (t *LocalProcessor) autoInit() {
-	if t.storage == nil {
-		t.storage = make(map[string]*Service)
-	}
+func (t *LocalProcessor) Init() error {
+	t.storage = make(map[string]*Service)
+	return nil
 }
 
 // 挂载节点
 func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address string) error {
 	t.Lock()
 	defer t.Unlock()
-
-	t.autoInit()
 
 	newNode := &Node{
 		NodeName: nodeName,
@@ -47,8 +44,6 @@ func (t *LocalProcessor) UnMountNode(serviceName string, nodeName string) error 
 	t.Lock()
 	defer t.Unlock()
 
-	t.autoInit()
-
 	exService := t.storage[serviceName]
 	if exService == nil {
 		return errors.New("service not found")
@@ -69,8 +64,6 @@ func (t *LocalProcessor) Find(serviceName string, nodeName string) (*Node, error
 	t.Lock()
 	defer t.Unlock()
 
-	t.autoInit()
-
 	exService := t.storage[serviceName]
 	if exService == nil {
 		return nil, errors.New("service not found")
@@ -90,8 +83,6 @@ func (t *LocalProcessor) FindAll(serviceName string) (*Service, error) {
 	t.Lock()
 	defer t.Unlock()
 
-	t.autoInit()
-
 	exService := t.storage[serviceName]
 	if exService == nil {
 		return nil, errors.New("service not found")
@@ -104,8 +95,6 @@ func (t *LocalProcessor) FindAll(serviceName string) (*Service, error) {
 func (t *LocalProcessor) FindAllService() ([]*Service, error) {
 	t.Lock()
 	defer t.Unlock()
-
-	t.autoInit()
 
 	list := make([]*Service, len(t.storage))
 	i := 0

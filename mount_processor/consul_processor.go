@@ -2,47 +2,39 @@ package mount_processor
 
 import (
 	"errors"
-	"fmt"
 	"github.com/hashicorp/consul/api"
-	"strconv"
 	"strings"
 	"sync"
 )
 
 // Consul挂载点处理器抽象
 type ConsulProcessor struct {
-	client *api.Client
+	Client *api.Client
 	findCache sync.Map
 	findAllCache sync.Map
 }
 
-func (t *ConsulProcessor) Init() error {
-	t.client,_ = api.NewClient(api.DefaultConfig())
+func (t *ConsulProcessor) Init() (err error) {
+	if t.Client == nil {
+		t.Client,err = api.NewClient(api.DefaultConfig())
+	}
 
-	//t.client.Agent().CheckRegister()
-
-	return nil
+	return
 }
 
 // 挂载节点
 func (t *ConsulProcessor) MountNode(serviceName string, nodeName string, address string) error {
-	addr := strings.Split(address, ":")
-	port,_ := strconv.Atoi(addr[1])
-	if port <= 0 {
-		return errors.New("address not validate")
-	}
-
-	return t.client.Agent().ServiceRegister( &api.AgentServiceRegistration{
+	return t.Client.Agent().ServiceRegister( &api.AgentServiceRegistration{
 		ID:    serviceName+"/"+nodeName,
 		Name:  serviceName,
-		Address: addr[0],
-		Port:  port,
+		Address: address,
 		Tags: []string{nodeName},
 		Check: &api.AgentServiceCheck{
 			Interval: "5s",
 			Timeout: "1s",
 			GRPC: address + "/:" +serviceName+"/"+nodeName,
 			TLSSkipVerify: true,
+			DeregisterCriticalServiceAfter: "1m",
 		},
 	})
 }
@@ -50,12 +42,12 @@ func (t *ConsulProcessor) MountNode(serviceName string, nodeName string, address
 // 移除挂载节点
 func (t *ConsulProcessor) UnMountNode(serviceName string, nodeName string) error {
 
-	return t.client.Agent().ServiceDeregister(serviceName+"/"+nodeName)
+	return t.Client.Agent().ServiceDeregister(serviceName+"/"+nodeName)
 }
 
 // 查询单个节点
 func (t *ConsulProcessor) Find(serviceName string, nodeName string) (*Node, error) {
-	list,_,err := t.client.Health().Service(serviceName, nodeName, true, nil)
+	list,_,err := t.Client.Health().Service(serviceName, nodeName, true, nil)
 	if err != nil {
 		return nil, errors.New("node not found err: "+err.Error())
 	}
@@ -67,13 +59,13 @@ func (t *ConsulProcessor) Find(serviceName string, nodeName string) (*Node, erro
 	node := list[0]
 	return &Node{
 		NodeName: strings.Split(node.Service.ID, "/")[1],
-		Address:  fmt.Sprintf("%s:%d", node.Node.Address, node.Service.Port),
+		Address:  node.Service.Address,
 	}, nil
 }
 
 // 查询所有节点
 func (t *ConsulProcessor) FindAll(serviceName string) (*Service, error) {
-	list,_,err := t.client.Health().Service(serviceName, "", true, nil)
+	list,_,err := t.Client.Health().Service(serviceName, "", true, nil)
 	if err != nil {
 		return nil, errors.New("node not found err: "+err.Error())
 	}
@@ -86,7 +78,7 @@ func (t *ConsulProcessor) FindAll(serviceName string) (*Service, error) {
 	for i,node := range list {
 		service.Nodes[i] = &Node{
 			NodeName: strings.Split(node.Service.ID, "/")[1],
-			Address:  fmt.Sprintf("%s:%d", node.Node.Address, node.Service.Port),
+			Address:  node.Service.Address,
 		}
 	}
 

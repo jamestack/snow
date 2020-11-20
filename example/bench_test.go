@@ -1,12 +1,14 @@
 package example
 
 import (
+	"encoding/gob"
+	"errors"
 	"fmt"
 	"log"
+	"reflect"
 	"snow"
 	"sync"
 	"testing"
-	"time"
 )
 
 func (u *User) Play(name string) string {
@@ -16,6 +18,10 @@ func (u *User) Play(name string) string {
 	return name
 }
 
+func init() {
+	gob.Register(errors.New(""))
+}
+
 func TestBenchNodeA(t *testing.T) {
 	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
 	done,err := cluster.Serve()
@@ -23,18 +29,16 @@ func TestBenchNodeA(t *testing.T) {
 		fmt.Println(err)
 		return
 	}
-	defer func() {
-		<-done
-	}()
 
 	_,err = cluster.Mount("james", &User{name: "james"})
 	fmt.Println(err)
 
-	<-time.After(60*time.Minute)
+	s := <-done
+	fmt.Println("Got signal:", s)
 }
 
 func TestBenchNodeB(t *testing.T) {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8001","127.0.0.1:8001")
 	done,err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
@@ -72,6 +76,12 @@ func TestBenchNodeB(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
+
+	err = james.Call("TestErr", errors.New("123"), func(str string, err error) {
+		fmt.Println(str, err, err == nil, reflect.TypeOf(err))
+	})
+	fmt.Println(err)
+
 	// 远程调用
 	log.Println("rpc start")
 	for i:=0;i<MAX_ROUND;i++ {

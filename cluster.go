@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"net"
+	"os"
+	"os/signal"
 	"reflect"
 	"snow/mount_processor"
 	"snow/pb"
@@ -80,6 +83,8 @@ func (c *Cluster)getRpcClient(addr string) (client pb.PeerRpcClient,err error) {
 }
 
 // 初始化集群
+// @listenAddr  rpc监听地址
+// &peerAddr    rpc对外访问的地址
 func NewCluster(listenAddr string, peerAddr string, mountProcessor mount_processor.IMountProcessor) *Cluster {
 	c := &Cluster{
 		mountProcessor: mountProcessor,
@@ -102,23 +107,81 @@ func NewClusterWithLocal() *Cluster {
 }
 
 // 支持Consul挂载点的集群
-func NewClusterWithConsul(listenAddr string, peerAddr string) *Cluster {
+// @listenAddr  rpc监听地址
+// &peerAddr    rpc对外访问的地址
+func NewClusterWithConsul(listenAddr string, peerAddr string, client ...*api.Client) *Cluster {
 	mountProcessor := &mount_processor.ConsulProcessor{}
-	_ = mountProcessor.Init()
+	if len(client) != 0 {
+		mountProcessor.Client = client[0]
+	}
 	return NewCluster(listenAddr, peerAddr, mountProcessor)
 }
 
 // 开始监听本
-func (c *Cluster) Serve() (done chan bool, err error){
-	ch := make(chan bool)
+func (c *Cluster) Serve() (done chan os.Signal, err error){
+	ch := make(chan os.Signal)
+	done = make(chan os.Signal)
+	// 初始化挂载点处理器
+	err = c.mountProcessor.Init()
+	if err != nil {
+		return nil, err
+	}
+	// 执行异步任务
+	go func() {
+		defer checkPanic()
+
+		if c.mountProcessor == nil {
+			return
+		}
+
+		for {
+			// 每隔30秒检测一次本地挂载点
+			<-time.After(30*time.Second)
+			// 如果挂载点失效则尝试重新挂载
+			c.localNodes.Range(func(key, value interface{}) bool {
+				node := value.(*Node)
+				_,err := c.mountProcessor.Find(node.serviceName, node.nodeName)
+				if err != nil {
+					err = c.mountProcessor.MountNode(node.serviceName, node.nodeName, c.peerAddr)
+					if err != nil {
+						fmt.Println("[SNOW] auto mount node "+node.Name()+" fail,err = "+err.Error())
+					}
+				}
+				return true
+			})
+		}
+	}()
+
+	// 监听进程退出信号
+	signal.Notify(ch, os.Interrupt, os.Kill)
+	go func() {
+		defer checkPanic()
+		sig := <-ch
+
+		fmt.Println("[Snow] Start UnMount All Local Nodes.")
+		// 关闭取消挂载所有节点
+		c.localNodes.Range(func(key, value interface{}) bool {
+			node := value.(*Node)
+			fmt.Println("[Snow] Start UnMount " + key.(string))
+			_ = node.UnMount()
+			fmt.Println("[Snow] End UnMount " + key.(string))
+			return true
+		})
+
+		done <- sig
+	}()
+
 	// 不监听
 	if c.listenAddr == "" {
-		return  ch,nil
+		fmt.Println("[Snow] Cluster Serve Success")
+		done = ch
+		return  done,nil
 	}
 
+	// 开始监听grpc
 	listener,err := net.Listen("tcp", c.listenAddr)
 	if err != nil {
-		return ch, err
+		return nil, err
 	}
 
 	server := grpc.NewServer()
@@ -131,11 +194,14 @@ func (c *Cluster) Serve() (done chan bool, err error){
 	c.server = server
 	// 监听rpc端口
 	go func() {
+		defer checkPanic()
 		err = server.Serve(listener)
-		ch <- true
+		fmt.Println("[Snow] GRpc Serve() err:", err)
+		ch <- os.Interrupt
 	}()
 
-	return ch, nil
+	fmt.Println("[Snow] Cluster Serve Success")
+	return done, nil
 }
 
 // 查找某节点
@@ -214,14 +280,10 @@ func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 	for _,node := range service.Nodes {
 		var item *Node
 
-		if node.Address == c.peerAddr {
-			iNode,ok := c.localNodes.Load(serviceName + "/" + node.NodeName)
-			if ok {
-				item = iNode.(*Node)
-			}else {
-				continue
-			}
-		} else {
+		iNode,ok := c.localNodes.Load(serviceName + "/" + node.NodeName)
+		if ok {
+			item = iNode.(*Node)
+		}else {
 			item = &Node{
 				Cluster: c,
 				addr: node.Address,
@@ -262,6 +324,16 @@ func (c *Cluster) findAll(serviceName string) (*mount_processor.Service, error) 
 	}
 
 	return res, err
+}
+
+// 查询所有本机节点
+func (c *Cluster) FindLocalAll() []*Node {
+	list := []*Node{}
+	c.localNodes.Range(func(_, value interface{}) bool {
+		list = append(list, value.(*Node))
+		return true
+	})
+	return list
 }
 
 // 挂载某节点
@@ -315,6 +387,7 @@ func (c *Cluster) Mount(name string, iNode interface{}) (*Node, error) {
 		serviceName: serviceName,
 		nodeName: nodeName,
 		iNode:iNode,
+		mTime: time.Now().Unix(),
 	}
 	iNodefield.Set(reflect.ValueOf(newNode))
 
@@ -323,59 +396,50 @@ func (c *Cluster) Mount(name string, iNode interface{}) (*Node, error) {
 
 	if i,ok := iNode.(HookMount);ok {
 		go func() {
-			defer func() {
-				if err := recover(); err != nil {
-					fmt.Printf("%T OnMount() panic: %v\n", iNode, err)
-				}
-			}()
+			defer checkPanic()
 			i.OnMount()
 		}()
 	}
+
+	fmt.Println("[Snow] Mount Node", key, "Success")
 	return newNode, nil
+}
+
+// 挂载一个随机子节点
+func (c *Cluster) MountRandNode(serviceName string, iNode interface{}) (*Node, error) {
+	return c.Mount(serviceName+"/"+RandStr(6), iNode)
 }
 
 // 取消挂载某节点
 func (c *Cluster) UnMount(name string) error {
-	var serviceName string
-	var nodeName string
-	name = strings.Trim(name, "/")
-	list := strings.Split(name, "/")
-	switch len(list) {
-	case 1:
-		serviceName = list[0]
-		nodeName = "Master"
-	case 2:
-		serviceName = list[0]
-		nodeName = list[1]
-	default:
-		return errors.New("mount name not validate: ["+name+"]")
+	// 检测是否为本地挂载点，拒绝取消挂载远程节点
+	node,err := c.Find(name)
+	if err != nil {
+		return err
 	}
 
-	key := serviceName +"/"+ nodeName
+	if node.IsRemote() {
+		rpc,err := c.getRpcClient(node.addr)
+		if err != nil {
+			return err
+		}
+		_,err = rpc.UnMount(context.TODO(), &pb.NodeName{Str: name})
 
-	// 检测是否为本地挂载点，拒绝取消挂载远程节点
-	node,ok := c.localNodes.Load(key)
-	if !ok {
-		return errors.New("not found local node")
+		return err
 	}
 
 	// 同步挂载到远程挂载点
-	err := c.mountProcessor.UnMountNode(serviceName, nodeName)
+	err = c.mountProcessor.UnMountNode(node.serviceName, node.nodeName)
 	if err != nil {
 		return err
 	}
 
 	// 写入本地挂载点
-	c.localNodes.Delete(key)
+	c.localNodes.Delete(node.serviceName + "/" + node.nodeName)
 
-	iNode := node.(*Node).iNode
-	if i,ok := iNode.(HookUnMount);ok {
-		go func() {
-			defer func() {
-				if err := recover(); err != nil {
-					fmt.Printf("%T OnUnMount() panic: %v\n", iNode, err)
-				}
-			}()
+	if i,ok := node.iNode.(HookUnMount);ok {
+		func() {
+			defer checkPanic()
 			i.OnUnMount()
 		}()
 	}

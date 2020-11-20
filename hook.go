@@ -1,5 +1,7 @@
 package snow
 
+import "reflect"
+
 // 挂载hook
 type HookMount interface {
 	OnMount()
@@ -10,4 +12,7 @@ type HookUnMount interface {
 	OnUnMount()
 }
 
-// 消息处理器
+// 自定义消息处理器
+type HookCall interface {
+	OnCall(name string, call func([]reflect.Value) []reflect.Value, args []reflect.Value) []reflect.Value
+}

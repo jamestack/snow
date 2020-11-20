@@ -15,6 +15,8 @@ type Node struct {
 
 // 服务挂载点抽象处理器抽象
 type IMountProcessor interface {
+	// 处理器初始化
+	Init() error
 	// 挂载某节点
 	MountNode(serviceName string, nodeName string, address string) error
 	// 删除某节点

@@ -10,15 +10,21 @@ import (
 	"snow/pb"
 )
 
-// 本地节点
-type localNode struct {
-	iNode   interface{}
+type myErr struct {
+	S string
+	IsNil bool
 }
 
-// 远程同伴节点
-type peerNode struct {
-	peerAddr string
-	path string
+func (e *myErr) Error() string {
+	return e.S
+}
+
+var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
+func isErr(obj reflect.Type) bool {
+	if obj.Implements(errorInterface) {
+		return true
+	}
+	return false
 }
 
 // -------------- iNode内部实现 ------------
@@ -28,16 +34,44 @@ type Node struct {
 	serviceName string
 	nodeName string
 	iNode   interface{}
+	mTime int64  // 挂载时间
 }
 
 // 是否为本地节点
 func (i *Node) IsLocal() bool {
-	return i.addr == i.Cluster.peerAddr
+	_,ok := i.localNodes.Load(i.serviceName+"/"+i.nodeName)
+	return ok
 }
 
 // 是否为远程节点
 func (i *Node) IsRemote() bool {
-	return i.addr != i.Cluster.peerAddr
+	_,ok := i.localNodes.Load(i.serviceName+"/"+i.nodeName)
+	return !ok
+}
+
+// 节点名
+func (i *Node) Name() string {
+	return i.serviceName+"/"+i.nodeName
+}
+
+// 挂载时间
+func (i *Node) MountTime() (int64, error) {
+	if i.IsLocal() {
+		return i.mTime, nil
+	}else {
+		var rpc pb.PeerRpcClient
+		rpc,err := i.Cluster.getRpcClient(i.addr)
+		if err != nil {
+			return 0, err
+		}
+		res,err := rpc.MountTime(context.TODO(), &pb.NodeName{
+			Str: i.serviceName + "/" + i.nodeName,
+		})
+		if err != nil {
+			return 0, err
+		}
+		return res.Unix, nil
+	}
 }
 
 // 取消挂载
@@ -50,6 +84,7 @@ func (i *Node) Call(method string, args ...interface{}) (err error) {
 	defer func() {
 		errPanic := recover()
 		if errPanic != nil {
+			printStack(errPanic)
 			err = fmt.Errorf("node.Call() panic: %v", errPanic)
 		}
 	}()
@@ -99,30 +134,38 @@ func (i *Node) call(method string, args ...interface{}) (err error) {
 
 	defer func() {
 		if pErr := recover(); pErr != nil {
+			printStack(pErr)
 			err = fmt.Errorf("%v", pErr)
 			return
 		}
 	}()
 
 	// method call
-	if len(args) > 0 {
-		params := make([]reflect.Value, len(args))
-		hasStream := false
-		for i, v := range args {
-			if _,ok := v.(*Stream); ok {
-				hasStream = true
-			}
-			params[i] = reflect.ValueOf(v)
+	params := make([]reflect.Value, len(args))
+	hasStream := false
+	for i, v := range args {
+		if _,ok := v.(*Stream); ok {
+			hasStream = true
 		}
+		params[i] = reflect.ValueOf(v)
+	}
 
-		if hasStream {
-			// stream不执行回调函数
-			go methodValue.Call(params)
-			return
+	fn := func() []reflect.Value {
+		if i,ok := i.iNode.(HookCall);ok {
+			return i.OnCall(method, methodValue.Call, params)
 		}
-		res = methodValue.Call(params)
+		return methodValue.Call(params)
+	}
+
+	if hasStream {
+		// stream不执行回调函数
+		go func() {
+			defer checkPanic()
+			_ = fn()
+		}()
+		return
 	}else {
-		res = methodValue.Call([]reflect.Value{})
+		res = fn()
 	}
 
 	// cb call
@@ -135,6 +178,12 @@ func (i *Node) call(method string, args ...interface{}) (err error) {
 
 	return nil
 }
+
+// 由于reflect.Call()无法传入nil值(会报Zero Value错误)，并且就算成功Call((*myErr)(nil))成功，也会出现err == nil会为true的情况（而该又确实是nil,调用时也会触发nil point panic)
+// 所以这儿使用了发现的@hack写法，希望寻求更好的reflect.Call(nil)写法。
+var nilValue = reflect.Zero(reflect.ValueOf(struct {
+	Err error
+}{}).Field(0).Type())
 
 // rpc远程调用
 func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
@@ -156,6 +205,14 @@ func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 	var cb *reflect.Value
 	for _, ai := range args {
 		at := reflect.ValueOf(ai)
+		if ai == nil || isErr(at.Type()) {
+			if ai == nil {
+				at = reflect.ValueOf(&myErr{S: "", IsNil: true})
+			}else {
+				at = reflect.ValueOf(&myErr{S: ai.(error).Error(), IsNil: false})
+			}
+		}
+
 		if at.Kind() == reflect.Ptr {
 			at = at.Elem()
 		}
@@ -198,6 +255,9 @@ func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 	decoder :=  gob.NewDecoder(reader)
 	for i:=0;i<cbn;i++ {
 		it := cbt.In(i)
+		if isErr(it) {
+			it = reflect.TypeOf(&myErr{})
+		}
 		isPtr := false
 		if it.Kind() == reflect.Ptr {
 			it = it.Elem()
@@ -209,6 +269,11 @@ func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 		if err != nil {
 			return fmt.Errorf("remote args[%d] decode err: %v", i, err)
 		}
+
+		if e,ok := nw.Interface().(*myErr);ok && e.IsNil == true {
+			nw = nilValue
+		}
+
 		if isPtr {
 			cin[i] = nw
 		}else {
@@ -258,6 +323,15 @@ func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err e
 		var vl []reflect.Value
 		for _, ai := range args {
 			at := reflect.ValueOf(ai)
+
+			if ai == nil || isErr(at.Type()) {
+				if ai == nil {
+					at = reflect.ValueOf(&myErr{S: "", IsNil: true})
+				}else {
+					at = reflect.ValueOf(&myErr{S: ai.(error).Error(), IsNil: false})
+				}
+			}
+
 			if at.Kind() == reflect.Ptr {
 				at = at.Elem()
 			}

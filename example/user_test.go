@@ -1,7 +1,9 @@
 package example
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 	"snow"
 	"testing"
 )
@@ -13,6 +15,31 @@ type Root struct {
 type User struct {
 	*snow.Node
 	name string
+}
+
+// 模拟全局消息总线
+var GlobalProcessor = snow.NewProcessor(1024)
+
+func (u *User) TestErr(req error) (string, error) {
+	fmt.Println("call")
+	return "hello", req
+}
+
+// 自定义消息处理器，模拟全局消息总线
+func (u *User) OnCall(name string, call func([]reflect.Value) []reflect.Value, args []reflect.Value) []reflect.Value {
+	var res []reflect.Value
+	ch := make(chan bool)
+
+	// 丢到全局消息总线中去执行
+	GlobalProcessor.Run(func() {
+		fmt.Println("Call", name, "Start")
+		res = call(args)
+		fmt.Println("Call", name, "End")
+		ch <- true
+	})
+
+	<-ch
+	return res
 }
 
 // 挂载回调
@@ -38,7 +65,8 @@ func (u *User) SetAge(age *int64) *int64 {
 }
 
 func TestUserNode(t *testing.T) {
-	cluster := snow.NewClusterWithLocal()
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+	_,_ = cluster.Serve()
 
 	userManager,err := cluster.Mount("UserManager", &User{
 		name: "james",
@@ -50,6 +78,11 @@ func TestUserNode(t *testing.T) {
 	err = userManager.Call("Name", func(name string) {
 		fmt.Println("call done")
 	})
+
+	err = userManager.Call("TestErr", errors.New("myErr"),  func(name string, err error) {
+		fmt.Println(name, err)
+	})
+
 	fmt.Println("call err:", err)
 }
 
