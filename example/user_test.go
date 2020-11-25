@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"snow"
+	"github.com/JamesWone/snow"
 	"testing"
 )
 

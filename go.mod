@@ -1,4 +1,4 @@
-module snow
+module github.com/JamesWone/snow
 
 go 1.13
 

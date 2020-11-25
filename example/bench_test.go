@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"snow"
+	"github.com/JamesWone/snow"
 	"sync"
 	"testing"
 )

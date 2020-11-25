@@ -2,7 +2,7 @@ package example
 
 import (
 	"fmt"
-	"snow"
+	"github.com/JamesWone/snow"
 )
 
 // 游戏节点对象
