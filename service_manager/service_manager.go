@@ -5,7 +5,7 @@ import (
 	"net"
 	"os"
 	"runtime"
-	"snow"
+	"github.com/JamesWone/snow"
 	"sort"
 )
 

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"snow/pb"
+	"github.com/JamesWone/snow/pb"
 	"strings"
 )
 
