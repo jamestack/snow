@@ -44,7 +44,7 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 		q.nw = head
 		q.nr = head
 		q.cap = 1
-		q.receiveCh = make(chan struct{}, 1)
+		q.receiveCh = make(chan struct{})
 	}
 
 	q.nw.value = v
