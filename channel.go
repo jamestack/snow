@@ -3,7 +3,6 @@ package snow
 import (
 	"errors"
 	"sync"
-	"time"
 )
 
 // 无限缓存Channel
@@ -11,6 +10,7 @@ type Channel struct {
 	lock sync.Mutex
 	nw   *sRing
 	nr   *sRing
+	receiveCh chan struct{}
 	close bool
 	cap int
 	maxCap int
@@ -44,6 +44,7 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 		q.nw = head
 		q.nr = head
 		q.cap = 1
+		q.receiveCh = make(chan struct{}, 1)
 	}
 
 	q.nw.value = v
@@ -62,23 +63,32 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 		q.cap += q.cap
 	}
 	q.nw = next
+
+	select {
+		case q.receiveCh <- struct{}{}:
+	default:
+
+	}
+
 	return true
 }
 
 // 阻塞直到取到值或者该队列关闭
 // @sleep 抢占式调度时的频率控制，达到任务或者线程优先级控制的目的
 func (q *Channel) Receive() (v interface{}, ok bool) {
-	for {
-		value,err := q.Get()
-		switch err {
-		case nil:
-			return value, true
-		case ErrClosed:
-			return nil, false
-		default:
-			<-time.After(1)
+	value,err := q.Get()
+	switch err {
+	case nil:
+		return value, true
+	case ErrEmpty:
+		_,ok := <-q.receiveCh
+		if ok {
+			return q.Receive()
 		}
+	case ErrClosed:
+		return nil, false
 	}
+	return nil, false
 }
 
 // 关闭队列并回收队列
@@ -92,6 +102,7 @@ func (q *Channel) Close() (ok bool) {
 
 	// 更新关闭状态
 	q.close = true
+	close(q.receiveCh)
 
 	// 回收内存
 	q.gc()
