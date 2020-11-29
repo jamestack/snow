@@ -14,6 +14,16 @@ type Channel struct {
 	close bool
 	cap int
 	maxCap int
+	chanLock sync.Mutex
+}
+
+func (q *Channel) getReceiveChan() chan struct{} {
+	q.chanLock.Lock()
+	defer q.chanLock.Unlock()
+	if q.receiveCh == nil {
+		q.receiveCh = make(chan struct{})
+	}
+	return q.receiveCh
 }
 
 type sRing struct {
@@ -44,7 +54,6 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 		q.nw = head
 		q.nr = head
 		q.cap = 1
-		q.receiveCh = make(chan struct{})
 	}
 
 	q.nw.value = v
@@ -81,7 +90,7 @@ func (q *Channel) Receive() (v interface{}, ok bool) {
 	case nil:
 		return value, true
 	case ErrEmpty:
-		_,ok := <-q.receiveCh
+		_,ok := <-q.getReceiveChan()
 		if ok {
 			return q.Receive()
 		}
@@ -102,7 +111,9 @@ func (q *Channel) Close() (ok bool) {
 
 	// 更新关闭状态
 	q.close = true
-	close(q.receiveCh)
+	if q.receiveCh != nil {
+		close(q.receiveCh)
+	}
 
 	// 回收内存
 	q.gc()
