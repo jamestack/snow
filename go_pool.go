@@ -14,12 +14,8 @@ type GoPool struct {
 	t         *time.Timer
 }
 
-//var ErrClosed = errors.New("Closed")
-
 func NewGoPool(size uint32) *GoPool {
-	p := &GoPool{
-		pq: NewPriorityQueue(),
-	}
+	p := &GoPool{}
 	p.SetWorkerNum(size)
 	return p
 }
@@ -68,9 +64,8 @@ func (p *GoPool) Status() (workerNum int32, activeNum int32) {
 
 // 线程池内执行异步任务
 // @done 执行成功返回true
-// @ok 成功插入待执行队列
+// @err 插入待执行队列失败
 func (p *GoPool) Go(fn func()) (done chan bool, err error) {
-	done = make(chan bool, 2)
 	ok := p.ch.Send(func() {
 		defer func() {
 			done <- true
@@ -85,6 +80,9 @@ func (p *GoPool) Go(fn func()) (done chan bool, err error) {
 
 func (p *GoPool) AfterFunc(d time.Duration, fn func()) (done chan bool, err error) {
 	tn := time.Now().Add(d).UnixNano()
+	if p.pq == nil {
+		p.pq = NewPriorityQueue()
+	}
 	if p.t == nil {
 		p.t = time.NewTimer(0)
 		<-p.t.C
@@ -102,7 +100,10 @@ func (p *GoPool) AfterFunc(d time.Duration, fn func()) (done chan bool, err erro
 					p.peekTime = 0
 					break
 				}
-				_,_ = p.Go(f.(func()))
+				_,_ = p.Go(func() {
+					f.(func())()
+					done <- true
+				})
 
 				_,pt,ok := p.pq.Peek()
 				if ok {
