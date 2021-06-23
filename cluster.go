@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"github.com/JamesWone/snow/mount_processor"
 	"github.com/JamesWone/snow/pb"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ type Cluster struct {
 	rpcLock sync.Mutex
 	findLock sync.Mutex
 	findAllLock sync.Mutex
+	eventPool *GoPool
 	// 挂载点处理器
 	mountProcessor mount_processor.IMountProcessor
 	// 挂载点缓存
@@ -90,6 +92,7 @@ func NewCluster(listenAddr string, peerAddr string, mountProcessor mount_process
 		mountProcessor: mountProcessor,
 		listenAddr:     listenAddr,
 		peerAddr:       peerAddr,
+		eventPool: NewGoPool(uint32(runtime.NumCPU()) * 4),
 	}
 
 	if mountProcessor == nil {
@@ -127,7 +130,7 @@ func (c *Cluster) Serve() (done chan os.Signal, err error){
 		return nil, err
 	}
 	// 执行异步任务
-	go func() {
+	c.eventPool.Go(func() {
 		defer checkPanic()
 
 		if c.mountProcessor == nil {
@@ -150,11 +153,11 @@ func (c *Cluster) Serve() (done chan os.Signal, err error){
 				return true
 			})
 		}
-	}()
+	})
 
 	// 监听进程退出信号
 	signal.Notify(ch, os.Interrupt, os.Kill)
-	go func() {
+	c.eventPool.Go(func() {
 		defer checkPanic()
 		sig := <-ch
 
@@ -169,7 +172,7 @@ func (c *Cluster) Serve() (done chan os.Signal, err error){
 		})
 
 		done <- sig
-	}()
+	})
 
 	// 不监听
 	if c.listenAddr == "" {
@@ -193,12 +196,12 @@ func (c *Cluster) Serve() (done chan os.Signal, err error){
 	// 更新状态
 	c.server = server
 	// 监听rpc端口
-	go func() {
+	c.eventPool.Go(func() {
 		defer checkPanic()
 		err = server.Serve(listener)
 		fmt.Println("[Snow] GRpc Serve() err:", err)
 		ch <- os.Interrupt
-	}()
+	})
 
 	fmt.Println("[Snow] Cluster Serve Success")
 	return done, nil
@@ -395,10 +398,10 @@ func (c *Cluster) Mount(name string, iNode interface{}) (*Node, error) {
 	c.localNodes.Store(key, newNode)
 
 	if i,ok := iNode.(HookMount);ok {
-		go func() {
+		c.eventPool.Go(func() {
 			defer checkPanic()
 			i.OnMount()
-		}()
+		})
 	}
 
 	fmt.Println("[Snow] Mount Node", key, "Success")

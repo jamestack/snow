@@ -159,10 +159,10 @@ func (i *Node) call(method string, args ...interface{}) (err error) {
 
 	if hasStream {
 		// stream不执行回调函数
-		go func() {
+		i.eventPool.Go(func() {
 			defer checkPanic()
 			_ = fn()
-		}()
+		})
 		return
 	}else {
 		res = fn()
