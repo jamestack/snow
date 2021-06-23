@@ -1,39 +1,39 @@
 package snow
 
 import (
-	"errors"
-	"sync"
 	"sync/atomic"
 	"time"
 )
 
 type GoPool struct {
-	lock sync.Mutex
 	workerNum int32  // 已启动的worker数
 	activeNum int32  // 正在执行任务的worker数
-	ch *Channel      // 任务主线队列
-	afterFuncPool *GoPool  // AfterFunc异步任务队列
-	afterDestroy chan bool
+	ch        *Channel      // 任务主线队列
+	pq        *PriorityQueue
+	peekTime  int64
+	t         *time.Timer
 }
 
-var ErrNotEnoughWorker = errors.New("[GoPool: NotEnoughWorker]")
+//var ErrClosed = errors.New("Closed")
 
-// 动态设置worker数
-func (p *GoPool) SetMaxWorker(size uint32) {
-	defer checkPanic()
+func NewGoPool(size uint32) *GoPool {
+	p := &GoPool{
+		pq: NewPriorityQueue(),
+	}
+	p.SetWorkerNum(size)
+	return p
+}
 
+// 动态设置worker数,size必须大于0，否则会发回错误
+func (p *GoPool) SetWorkerNum(size uint32) {
 	switch {
-	case size == 0:
-		if p.ch != nil {
-			p.destroy(true)
-		}
 	case int32(size) > p.workerNum:
 		if p.ch == nil {
-			p.ch = &Channel{}
+			p.SetChannel(&Channel{})
 		}
 
 		addNum := int32(size) - p.workerNum
-		for i:=int32(0);i<addNum;i++ {
+		for i:=int32(0); i<addNum; i++ {
 			w := worker{
 				pool: p,
 			}
@@ -48,6 +48,12 @@ func (p *GoPool) SetMaxWorker(size uint32) {
 	}
 }
 
+// 关闭
+func (p *GoPool) Close() {
+	p.ch.Close()
+	p.SetWorkerNum(0)
+}
+
 // 设置任务主线，达到多个worker组共享一个任务队列的目的
 func (p *GoPool) SetChannel(ch *Channel) {
 	p.ch = ch
@@ -60,73 +66,65 @@ func (p *GoPool) Status() (workerNum int32, activeNum int32) {
 	return p.workerNum, p.activeNum
 }
 
-// 销毁线程池
-// 1. p.Go() 销毁后会全部执行
-// 2. p.AfterFunc() 在pool销毁后未执行的将被全部丢弃
-func (p *GoPool) destroy(waitAllJobDone ...bool) {
-	if p.afterFuncPool != nil {
-		p.afterFuncPool.destroy(false)
-	}
-
-	if p.afterDestroy != nil {
-		p.afterDestroy <- true
-	}
-
-	p.ch.Close()
-	if len(waitAllJobDone) == 0 || waitAllJobDone[0] == true {
-		for {
-			worker,active := p.Status()
-			if worker == 0 && active == 0 {
-				break
-			}
-			<-time.After(1)
-		}
-	}
-	p.ch = nil
-}
-
-func (p *GoPool) Go(fn func()) <-chan bool {
-	defer checkPanic()
-
-	if p.workerNum == 0 {
-		panic(ErrNotEnoughWorker)
-		return nil
-	}
-
-	done := make(chan bool, 1)
-	p.ch.Send(func() {
+// 线程池内执行异步任务
+// @done 执行成功返回true
+// @ok 成功插入待执行队列
+func (p *GoPool) Go(fn func()) (done chan bool, err error) {
+	done = make(chan bool, 2)
+	ok := p.ch.Send(func() {
 		defer func() {
 			done <- true
 		}()
 		fn()
 	})
-	return done
+	if !ok {
+		return nil, ErrClosed
+	}
+	return done, nil
 }
 
-func (p *GoPool) AfterFunc(d time.Duration, fn func()) <-chan bool {
-	defer checkPanic()
+func (p *GoPool) AfterFunc(d time.Duration, fn func()) (done chan bool, err error) {
+	tn := time.Now().Add(d).UnixNano()
+	if p.t == nil {
+		p.t = time.NewTimer(0)
+		<-p.t.C
+		p.peekTime = 1<<63 - 1
+		_, err := p.Go(func() {
+			for {
+				_, ok := <-p.t.C
+				if !ok {
+					break
+				}
 
-	if p.workerNum == 0 {
-		panic(ErrNotEnoughWorker)
-		return nil
-	}
+				f,_,ok := p.pq.Pop()
+				if !ok {
+					p.t = nil
+					p.peekTime = 0
+					break
+				}
+				_,_ = p.Go(f.(func()))
 
-	// 初始化
-	if p.afterFuncPool == nil {
-		p.afterFuncPool = &GoPool{}
-		p.afterFuncPool.SetMaxWorker(1)
-		p.afterFuncPool.afterDestroy = make(chan bool, 1)
-	}
-
-	endTime := time.Now().Add(d)
-
-	return p.afterFuncPool.Go(func() {
-		select {
-		case <-p.afterFuncPool.afterDestroy:
-		case <-time.After(endTime.Sub(time.Now())):
-			p.Go(fn)
+				_,pt,ok := p.pq.Peek()
+				if ok {
+					p.t.Reset(time.Duration((-pt)-time.Now().UnixNano()))
+					p.peekTime = -pt
+				}else {
+					p.peekTime = 1<<63 - 1
+				}
+			}
+		})
+		if err != nil {
+			return nil, err
 		}
-	})
+	}
+
+	p.pq.Push(fn, -tn)
+
+	if tn < p.peekTime {
+		p.t.Reset(time.Duration(tn-time.Now().UnixNano()))
+	}
+
+	return done, nil
 }
 
 type worker struct {
@@ -139,7 +137,10 @@ func (w *worker) start() <-chan bool {
 		atomic.AddInt32(&w.pool.workerNum, 1)
 		done <- true
 
-		defer w.stop()
+		defer func() {
+			atomic.AddInt32(&w.pool.workerNum, -1)
+			w.pool = nil
+		}()
 
 		for {
 			if w.pool.ch == nil {
@@ -167,9 +168,4 @@ func (w *worker) start() <-chan bool {
 	}()
 
 	return done
-}
-
-func (w *worker) stop() {
-	atomic.AddInt32(&w.pool.workerNum, -1)
-	w.pool = nil
 }
