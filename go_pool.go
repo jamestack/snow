@@ -1,6 +1,7 @@
 package snow
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -12,6 +13,7 @@ type GoPool struct {
 	pq        *PriorityQueue
 	peekTime  int64
 	t         *time.Timer
+	lock sync.Mutex
 }
 
 func NewGoPool(size uint32) *GoPool {
@@ -66,6 +68,7 @@ func (p *GoPool) Status() (workerNum int32, activeNum int32) {
 // @done 执行成功返回true
 // @err 插入待执行队列失败
 func (p *GoPool) Go(fn func()) (done chan bool, err error) {
+	done = make(chan bool, 1)
 	ok := p.ch.Send(func() {
 		defer func() {
 			done <- true
@@ -75,17 +78,20 @@ func (p *GoPool) Go(fn func()) (done chan bool, err error) {
 	if !ok {
 		return nil, ErrClosed
 	}
-	return done, nil
+	return
 }
 
-func (p *GoPool) AfterFunc(d time.Duration, fn func()) (done chan bool, err error) {
-	tn := time.Now().Add(d).UnixNano()
+func (p *GoPool) initAfterFunc() error {
 	if p.pq == nil {
+		p.lock.Lock()
+		defer p.lock.Unlock()
+
 		p.pq = NewPriorityQueue()
-	}
-	if p.t == nil {
-		p.t = time.NewTimer(0)
-		<-p.t.C
+		if p.t == nil {
+			p.t = time.NewTimer(0)
+			<-p.t.C
+		}
+
 		p.peekTime = 1<<63 - 1
 		_, err := p.Go(func() {
 			for {
@@ -96,36 +102,60 @@ func (p *GoPool) AfterFunc(d time.Duration, fn func()) (done chan bool, err erro
 
 				f,_,ok := p.pq.Pop()
 				if !ok {
-					p.t = nil
-					p.peekTime = 0
 					break
 				}
-				_,_ = p.Go(func() {
-					f.(func())()
-					done <- true
-				})
+
+				ok = p.ch.Send(f)
+				if !ok {
+					break
+				}
 
 				_,pt,ok := p.pq.Peek()
-				if ok {
-					p.t.Reset(time.Duration((-pt)-time.Now().UnixNano()))
-					p.peekTime = -pt
-				}else {
+				if !ok {
 					p.peekTime = 1<<63 - 1
+					break
 				}
+
+				tn := -pt
+
+				p.lock.Lock()
+				p.peekTime = tn
+				p.t.Reset(time.Duration(tn-time.Now().UnixNano()))
+				p.lock.Unlock()
 			}
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
+
+	}
+	return nil
+}
+
+func (p *GoPool) AfterFunc(d time.Duration, fn func()) (done chan bool, err error) {
+	tn := time.Now().Add(d).UnixNano()
+	if err = p.initAfterFunc(); err != nil {
+		return nil, err
 	}
 
-	p.pq.Push(fn, -tn)
+	done = make(chan bool, 1)
 
+	p.pq.Push(func() {
+		defer func() {
+			done <- true
+			checkPanic()
+		}()
+
+		fn()
+	}, -tn)
+
+	p.lock.Lock()
 	if tn < p.peekTime {
+		p.peekTime = tn
 		p.t.Reset(time.Duration(tn-time.Now().UnixNano()))
 	}
-
-	return done, nil
+	p.lock.Unlock()
+	return
 }
 
 type worker struct {

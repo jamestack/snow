@@ -18,7 +18,7 @@ type User struct {
 }
 
 // 模拟全局消息总线
-var GlobalProcessor = snow.NewProcessor(1024)
+var GlobalProcessor = snow.NewGoPool(1024)
 
 func (u *User) TestErr(req error) (string, error) {
 	fmt.Println("call")
@@ -31,7 +31,7 @@ func (u *User) OnCall(name string, call func([]reflect.Value) []reflect.Value, a
 	ch := make(chan bool)
 
 	// 丢到全局消息总线中去执行
-	GlobalProcessor.Run(func() {
+	GlobalProcessor.Go(func() {
 		fmt.Println("Call", name, "Start")
 		res = call(args)
 		fmt.Println("Call", name, "End")
