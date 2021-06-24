@@ -86,48 +86,49 @@ func (p *GoPool) initAfterFunc() error {
 		p.lock.Lock()
 		defer p.lock.Unlock()
 
-		p.pq = NewPriorityQueue()
-		if p.t == nil {
-			p.t = time.NewTimer(0)
-			<-p.t.C
-		}
-
-		p.peekTime = 1<<63 - 1
-		_, err := p.Go(func() {
-			for {
-				_, ok := <-p.t.C
-				if !ok {
-					break
-				}
-
-				f,_,ok := p.pq.Pop()
-				if !ok {
-					break
-				}
-
-				ok = p.ch.Send(f)
-				if !ok {
-					break
-				}
-
-				_,pt,ok := p.pq.Peek()
-				if !ok {
-					p.peekTime = 1<<63 - 1
-					break
-				}
-
-				tn := -pt
-
-				p.lock.Lock()
-				p.peekTime = tn
-				p.t.Reset(time.Duration(tn-time.Now().UnixNano()))
-				p.lock.Unlock()
+		if p.pq == nil {
+			p.pq = NewPriorityQueue()
+			if p.t == nil {
+				p.t = time.NewTimer(0)
+				<-p.t.C
 			}
-		})
-		if err != nil {
-			return err
-		}
 
+			p.peekTime = 1<<63 - 1
+			_, err := p.Go(func() {
+				for {
+					_, ok := <-p.t.C
+					if !ok {
+						break
+					}
+
+					f,_,ok := p.pq.Pop()
+					if !ok {
+						break
+					}
+
+					ok = p.ch.Send(f)
+					if !ok {
+						break
+					}
+
+					_,pt,ok := p.pq.Peek()
+					if !ok {
+						p.peekTime = 1<<63 - 1
+						break
+					}
+
+					tn := -pt
+
+					p.lock.Lock()
+					p.peekTime = tn
+					p.t.Reset(time.Duration(tn-time.Now().UnixNano()))
+					p.lock.Unlock()
+				}
+			})
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
