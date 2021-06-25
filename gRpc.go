@@ -216,7 +216,6 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 		if isPtr {
 			fin[i] = nw
 			if e := nw.Interface().(*myErr); e.IsNil == true {
-				fmt.Println("ddddd")
 				fin[i] = nilValue
 			}
 		}else {
