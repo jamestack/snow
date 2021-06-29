@@ -1,113 +1,134 @@
 package promise
 
+import "sync"
+
 type Promise interface {
 	Then(fn Fn) Promise
 	Catch(fn ErrFn) <-chan bool
 }
 
-type Any interface {}
-type Fn func(resolve Resolve, reject Reject, args ...Any) Exit // func RPC_Login(a int, b int)
+type Any interface{}
+type Fn func(resolve Resolve, reject Reject, args ...Any) // func RPC_Login(a int, b int)
 type ErrFn func(errs ...error)
 
 type promise struct {
-	fn       Fn
-	catch    ErrFn
-	next     *promise
-	resolves   *[]Any
+	lock sync.Mutex
+	then     []Fn
+	catch ErrFn
+	finally func()
+	resolves *[]Any
+	rejects *[]error
 	done chan bool
 }
 
 func (p *promise) Then(fn Fn) Promise {
-	if fn == nil {
-		panic("Promise Func is nil")
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	if p.rejects != nil {
+		return p
 	}
-	newPromise := &promise{
-		fn:    fn,
-		catch: nil,
-		next:  nil,
-	}
-	p.next = newPromise
+
+	p.then = append(p.then, fn)
 
 	if p.resolves != nil {
-		newPromise.run(*p.resolves...)
-		p.resolves = nil
+		p.run(*p.resolves...)
 	}
-	return newPromise
+
+	return p
 }
 
-func (p *promise) Catch(fn ErrFn) <-chan bool{
-	newPromise := &promise{
-		fn:    nil,
-		catch: fn,
-		next:  nil,
-		done: make(chan bool, 1),
-	}
-	p.next = newPromise
-	return newPromise.done
-}
+func (p *promise) Catch(catch ErrFn) <-chan bool {
+	p.lock.Lock()
+	defer p.lock.Unlock()
 
-func (p *promise) resolve(resolve ...Any) Exit {
-	if p.fn == nil {
-		return struct {}{}
+	if p.catch != nil {
+		return p.done
 	}
+	p.catch = catch
+	p.done = make(chan bool, 1)
 
-	if p.next != nil {
-		if p.next.fn != nil {
-			p.next.run(resolve...)
-		}
-		if p.next.done != nil {
-			p.next.done <- true
-		}
-	} else {
-		p.resolves = &resolve
+	if p.rejects != nil {
+		catch(*p.rejects...)
+		p.rejects = nil
+		p.done <- true
 	}
 
-	p.fn = nil
-	p.catch = nil
-	return struct {}{}
-}
-
-func (p *promise) reject(err ...error) Exit {
-	p.fn = nil
-	p.catch = nil
-	for n := p.next; n != nil; {
-		next := n.next
-		catch := n.catch
-		n.fn = nil
-		n.catch = nil
-		n.next = nil
-
-		if catch != nil {
-			catch(err...)
-			n.done <- true
-		}
-		n = next
+	if p.resolves != nil {
+		p.done <- true
 	}
-	p.next = nil
-	return struct {}{}
+
+	return p.done
 }
 
 func (p *promise) run(args ...Any) {
-	go func() {
-		if p.fn != nil {
-			p.fn(p.resolve, p.reject, args...)
-		}
-	}()
+	var fn Fn
+	if len(p.then) > 0 {
+		fn = p.then[0]
+		p.then = p.then[1:]
+	}else {
+		return
+	}
 
+	p.resolves = nil
+
+	hasDone := false
+	hasReject := false
+	go fn(func(resolve ...Any) {
+		p.lock.Lock()
+		defer p.lock.Unlock()
+
+		if hasReject {
+			return
+		}
+		if hasDone {
+			return
+		}
+		hasDone = true
+
+		if len(p.then) > 0 {
+			p.run(resolve...)
+		}else {
+			p.resolves = &resolve
+			if p.catch != nil {
+				p.done <- true
+			}
+		}
+
+		return
+	}, func(err ...error) {
+		p.lock.Lock()
+		defer p.lock.Unlock()
+
+		if hasReject {
+			return
+		}
+		hasReject = true
+
+		if p.catch != nil {
+			p.catch(err...)
+			p.done <- true
+		}else {
+			p.rejects = &err
+		}
+
+		return
+	}, args...)
 }
 
-type Exit interface {}
+// resolve() reject()
+type Exit interface{}
 
-type Resolve func(resolve ...Any) Exit
+type Resolve func(resolve ...Any)
 
-type Reject func(err ...error) Exit
+type Reject func(err ...error)
 
 func New(fn Fn, args ...Any) Promise {
 	if fn == nil {
 		panic("Promise Func is nil")
 	}
 	p := &promise{
-		fn: fn,
+		then: []Fn{fn},
 	}
 	p.run(args...)
 	return p
