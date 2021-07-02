@@ -18,10 +18,12 @@ type Channel struct {
 }
 
 func (q *Channel) getReceiveChan() chan struct{} {
-	q.chanLock.Lock()
-	defer q.chanLock.Unlock()
 	if q.receiveCh == nil {
-		q.receiveCh = make(chan struct{})
+		q.chanLock.Lock()
+		if q.receiveCh == nil {
+			q.receiveCh = make(chan struct{})
+		}
+		q.chanLock.Unlock()
 	}
 	return q.receiveCh
 }
@@ -41,37 +43,40 @@ var ErrClosed = errors.New("[Channel: Closed]")
 
 // 向Channel发送数据
 func (q *Channel) Send(v interface{}) (ok bool) {
-	q.lock.Lock()
-	defer q.lock.Unlock()
-
 	if q.close {
 		return false
 	}
 
 	if q.nw == nil {
-		head := &sRing{}
-		head.next = head
-		q.nw = head
-		q.nr = head
-		q.cap = 1
+		q.lock.Lock()
+		if q.nw == nil {
+			head := &sRing{}
+			head.next = head
+			q.nw = head
+			q.nr = head
+			q.cap = 1
+		}
+		q.lock.Unlock()
 	}
 
+	q.lock.Lock()
 	q.nw.value = v
-	next := q.nw.next
-	if next == q.nr {
+	if q.nw.next == q.nr {
 		list := make([]sRing, q.cap, q.cap)
 		for i:=0;i<q.cap-1;i++ {
 			list[i].next = &list[i+1]
 		}
 
-		list[q.cap-1].next = next
+		list[q.cap-1].next = q.nw.next
 		q.nw.next = &list[0]
 
-		next = &list[0]
+		q.nw.next = &list[0]
 
 		q.cap += q.cap
 	}
-	q.nw = next
+	q.nw = q.nw.next
+
+	q.lock.Unlock()
 
 	select {
 		case q.receiveCh <- struct{}{}:
@@ -83,7 +88,6 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 }
 
 // 阻塞直到取到值或者该队列关闭
-// @sleep 抢占式调度时的频率控制，达到任务或者线程优先级控制的目的
 func (q *Channel) Receive() (v interface{}, ok bool) {
 	value,err := q.Get()
 	switch err {
@@ -124,7 +128,6 @@ func (q *Channel) Close() (ok bool) {
 // 从Chanel中取数据，不阻塞，如果队列为空或者已关闭则返回错误
 func (q *Channel) Get() (v interface{}, err error) {
 	q.lock.Lock()
-	defer q.lock.Unlock()
 
 	if q.nr == q.nw {
 		if q.close {
@@ -132,6 +135,7 @@ func (q *Channel) Get() (v interface{}, err error) {
 		}else {
 			err = ErrEmpty
 		}
+		q.lock.Unlock()
 		return
 	}
 
@@ -143,6 +147,8 @@ func (q *Channel) Get() (v interface{}, err error) {
 	if q.close && q.nr == q.nw {
 		q.gc()
 	}
+
+	q.lock.Unlock()
 	return
 }
 
