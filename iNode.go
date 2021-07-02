@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"github.com/JamesWone/snow/pb"
+	"github.com/jamestack/snow/pb"
 )
 
 type myErr struct {

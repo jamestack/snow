@@ -3,7 +3,7 @@ package example
 import (
 	"errors"
 	"fmt"
-	"github.com/JamesWone/snow/promise"
+	"github.com/jamestack/snow/promise"
 	"testing"
 	"time"
 )

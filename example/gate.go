@@ -5,7 +5,7 @@ import (
 	"github.com/gorilla/websocket"
 	"net"
 	"net/http"
-	"github.com/JamesWone/snow"
+	"github.com/jamestack/snow"
 	"sync"
 )
 

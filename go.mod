@@ -1,4 +1,4 @@
-module github.com/JamesWone/snow
+module github.com/jamestack/snow
 
 go 1.13
 

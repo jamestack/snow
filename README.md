@@ -33,7 +33,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/JamesWone/snow"
+	"github.com/jamestack/snow"
 )
 
 // 每个Struct只需包含*snow.Node，那么Snow就认为这是一个子节点
@@ -70,7 +70,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/JamesWone/snow"
+	"github.com/jamestack/snow"
 	"time"
 )
 

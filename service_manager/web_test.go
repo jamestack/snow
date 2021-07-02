@@ -2,7 +2,7 @@ package service_manager
 
 import (
 	"fmt"
-	"github.com/JamesWone/snow"
+	"github.com/jamestack/snow"
 	"testing"
 )
 
