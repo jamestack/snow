@@ -36,11 +36,6 @@ type sRing struct {
 var ErrEmpty = errors.New("[Channel: Empty]")
 var ErrClosed = errors.New("[Channel: Closed]")
 
-// todo 动态设置最大容量
-//func (q *Channel) SetMaxSize(size uint) {
-//
-//}
-
 // 向Channel发送数据
 func (q *Channel) Send(v interface{}) (ok bool) {
 	if q.close {
@@ -119,9 +114,6 @@ func (q *Channel) Close() (ok bool) {
 		close(q.receiveCh)
 	}
 
-	// 回收内存
-	q.gc()
-
 	return true
 }
 
@@ -143,29 +135,31 @@ func (q *Channel) Get() (v interface{}, err error) {
 	q.nr.value = nil
 	q.nr = q.nr.next
 
+	q.lock.Unlock()
+
 	// 完全关闭后，自动回收内存
 	if q.close && q.nr == q.nw {
 		q.gc()
 	}
-
-	q.lock.Unlock()
 	return
 }
 
 func (q *Channel) Peek() (v interface{}, err error) {
 	q.lock.Lock()
-	defer q.lock.Unlock()
 
 	if q.nr == q.nw {
 		if q.close {
+			q.lock.Unlock()
 			err = ErrClosed
 		}else {
+			q.lock.Unlock()
 			err = ErrEmpty
 		}
 		return
 	}
 
 	v = q.nr.value
+	q.lock.Unlock()
 	return
 }
 
