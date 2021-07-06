@@ -34,14 +34,14 @@ func TestChannelBench(t *testing.T) {
 	ch := snow.Channel{}
 
 	fmt.Println("send start", time.Now())
-	for i:=0;i<100000000;i++ {
+	for i:=0;i<100;i++ {
 		ch.Send(i)
 	}
 	fmt.Println("send end", time.Now())
 
 	fmt.Println("get start", time.Now())
-	for i:=0;i<100000000;i++ {
-		ch.Get()
+	for i:=0;i<100;i++ {
+		fmt.Println(ch.Get())
 	}
 	fmt.Println("get end", time.Now())
 
@@ -59,7 +59,7 @@ func TestChannelBench(t *testing.T) {
 
 	fmt.Println("receive end")
 
-	<-time.After(30*time.Second)
+	//<-time.After(30*time.Second)
 }
 
 func benchSysChanel(num int64) (res int64) {
@@ -135,7 +135,4 @@ func TestBenchChanelChannel(t *testing.T) {
 	benchTwoChannel(100000000)
 	fmt.Println("-----------bench 1000000000 10e ---------")
 	benchTwoChannel(1000000000)
-
-
-	<-time.After(30 *time.Second)
 }

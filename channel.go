@@ -2,6 +2,7 @@ package snow
 
 import (
 	"errors"
+	"math"
 	"sync"
 )
 
@@ -12,8 +13,9 @@ type Channel struct {
 	nr   *sRing
 	receiveCh chan struct{}
 	close bool
-	cap int
-	maxCap int
+	cap uint
+	addCap uint
+	maxCap uint
 	chanLock sync.Mutex
 }
 
@@ -50,6 +52,8 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 			q.nw = head
 			q.nr = head
 			q.cap = 1
+			q.addCap = 0
+			q.maxCap = math.MaxInt32
 		}
 		q.lock.Unlock()
 	}
@@ -57,17 +61,27 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 	q.lock.Lock()
 	q.nw.value = v
 	if q.nw.next == q.nr {
-		list := make([]sRing, q.cap, q.cap)
-		for i:=0;i<q.cap-1;i++ {
-			list[i].next = &list[i+1]
+		if q.cap < q.maxCap {
+			if q.cap < 1024 {
+				q.addCap = q.cap
+			}else {
+				q.addCap = q.cap / 4
+			}
+
+			list := make([]sRing, q.addCap, q.addCap)
+			for i:=uint(0);i<q.addCap-1;i++ {
+				list[i].next = &list[i+1]
+			}
+
+			list[q.addCap-1].next = q.nw.next
+			q.nw.next = &list[0]
+
+			q.cap += q.addCap
+		}else {
+			q.lock.Unlock()
+			// todo maxCap
+			return false
 		}
-
-		list[q.cap-1].next = q.nw.next
-		q.nw.next = &list[0]
-
-		q.nw.next = &list[0]
-
-		q.cap += q.cap
 	}
 	q.nw = q.nw.next
 
@@ -89,10 +103,8 @@ func (q *Channel) Receive() (v interface{}, ok bool) {
 	case nil:
 		return value, true
 	case ErrEmpty:
-		_,ok := <-q.getReceiveChan()
-		if ok {
-			return q.Receive()
-		}
+		<-q.getReceiveChan()
+		return q.Receive()
 	case ErrClosed:
 		return nil, false
 	}
@@ -110,9 +122,6 @@ func (q *Channel) Close() (ok bool) {
 
 	// 更新关闭状态
 	q.close = true
-	if q.receiveCh != nil {
-		close(q.receiveCh)
-	}
 
 	return true
 }
@@ -139,7 +148,7 @@ func (q *Channel) Get() (v interface{}, err error) {
 
 	// 完全关闭后，自动回收内存
 	if q.close && q.nr == q.nw {
-		q.gc()
+		go q.gc()
 	}
 	return
 }
@@ -165,6 +174,7 @@ func (q *Channel) Peek() (v interface{}, err error) {
 
 // 内存回收，避免已close的queue占用大量内存无法被Runtime使用
 func (q *Channel) gc() {
+	//fmt.Println("cap", q.cap)
 	if q.nw != nil && q.nr != nil {
 		var next *sRing
 		for n:=q.nw; n.next != q.nw && n.next != q.nr;n = n.next {
@@ -174,5 +184,9 @@ func (q *Channel) gc() {
 		if next != nil {
 			q.nw.next = next
 		}
+	}
+
+	if q.receiveCh != nil {
+		close(q.receiveCh)
 	}
 }
