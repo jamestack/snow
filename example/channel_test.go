@@ -88,7 +88,7 @@ func benchSysChanel(num int64) (res int64) {
 }
 
 func benchSnowChannel(num int64) (res int64) {
-	ch := snow.Channel{}
+	ch := snow.NewChannel(1024)
 	done := make(chan bool)
 
 	go func() {
