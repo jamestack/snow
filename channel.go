@@ -11,8 +11,8 @@ type Channel struct {
 	lock         sync.Mutex
 	nw           *sRing
 	nr           *sRing
-	receiveCh    chan struct{}
-	sendCh       chan struct{}
+	receiveCh    chan interface{}
+	sendCh       chan interface{}
 	close        bool
 	cap          uint
 	addCap       uint
@@ -31,22 +31,22 @@ func NewChannel(size ...uint) *Channel {
 	return ch
 }
 
-func (q *Channel) getReceiveChan() chan struct{} {
+func (q *Channel) getReceiveChan() chan interface{} {
 	if q.receiveCh == nil {
 		q.chanLock.Lock()
 		if q.receiveCh == nil {
-			q.receiveCh = make(chan struct{})
+			q.receiveCh = make(chan interface{})
 		}
 		q.chanLock.Unlock()
 	}
 	return q.receiveCh
 }
 
-func (q *Channel) getSendChan() chan struct{} {
+func (q *Channel) getSendChan() chan interface{} {
 	if q.sendCh == nil {
 		q.chanLock.Lock()
 		if q.sendCh == nil {
-			q.sendCh = make(chan struct{})
+			q.sendCh = make(chan interface{})
 		}
 		q.chanLock.Unlock()
 	}
@@ -99,21 +99,24 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 			q.needSendSign += 1
 			q.lock.Unlock()
 
-			<-q.getSendChan()
+			q.getSendChan() <- v
 
-			q.lock.Lock()
+			return ok
 		}
 	}
 
-	q.nw.value = v
-	q.nw = q.nw.next
-
 	if q.needReceiveSign > 0 {
-		q.getReceiveChan() <- struct{}{}
 		q.needReceiveSign -= 1
-	}
 
-	q.lock.Unlock()
+		q.lock.Unlock()
+
+		q.getReceiveChan() <- v
+	}else {
+		q.nw.value = v
+		q.nw = q.nw.next
+
+		q.lock.Unlock()
+	}
 
 	return true
 }
@@ -141,8 +144,8 @@ func (q *Channel) Receive() (v interface{}, ok bool) {
 	case nil:
 		return value, true
 	case ErrEmpty:
-		<-q.getReceiveChan()
-		return q.Receive()
+		v,ok = <-q.getReceiveChan()
+		return v, ok
 	case ErrClosed:
 		return nil, false
 	}
@@ -179,13 +182,15 @@ func (q *Channel) Get() (v interface{}, err error) {
 		return
 	}
 
-	v = q.nr.value
-	q.nr.value = nil
-	q.nr = q.nr.next
-
 	if q.needSendSign > 0 {
-		q.getSendChan() <- struct{}{}
 		q.needSendSign -= 1
+		q.lock.Unlock()
+		v,_ = <- q.getSendChan()
+		return v, nil
+	}else {
+		v = q.nr.value
+		q.nr.value = nil
+		q.nr = q.nr.next
 	}
 
 	q.lock.Unlock()
