@@ -7,11 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+
 	"github.com/jamestack/snow/pb"
 )
 
 type myErr struct {
-	S string
+	S     string
 	IsNil bool
 }
 
@@ -20,51 +21,49 @@ func (e *myErr) Error() string {
 }
 
 var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
+
 func isErr(obj reflect.Type) bool {
-	if obj.Implements(errorInterface) {
-		return true
-	}
-	return false
+	return obj.Implements(errorInterface)
 }
 
 // -------------- iNode内部实现 ------------
 type Node struct {
 	*Cluster
-	addr string
+	addr        string
 	serviceName string
-	nodeName string
-	iNode   interface{}
-	mTime int64  // 挂载时间
+	nodeName    string
+	iNode       interface{}
+	mTime       int64 // 挂载时间
 }
 
 // 是否为本地节点
 func (i *Node) IsLocal() bool {
-	_,ok := i.localNodes.Load(i.serviceName+"/"+i.nodeName)
+	_, ok := i.localNodes.Load(i.serviceName + "/" + i.nodeName)
 	return ok
 }
 
 // 是否为远程节点
 func (i *Node) IsRemote() bool {
-	_,ok := i.localNodes.Load(i.serviceName+"/"+i.nodeName)
+	_, ok := i.localNodes.Load(i.serviceName + "/" + i.nodeName)
 	return !ok
 }
 
 // 节点名
 func (i *Node) Name() string {
-	return i.serviceName+"/"+i.nodeName
+	return i.serviceName + "/" + i.nodeName
 }
 
 // 挂载时间
 func (i *Node) MountTime() (int64, error) {
 	if i.IsLocal() {
 		return i.mTime, nil
-	}else {
+	} else {
 		var rpc pb.PeerRpcClient
-		rpc,err := i.Cluster.getRpcClient(i.addr)
+		rpc, err := i.Cluster.getRpcClient(i.addr)
 		if err != nil {
 			return 0, err
 		}
-		res,err := rpc.MountTime(context.TODO(), &pb.NodeName{
+		res, err := rpc.MountTime(context.TODO(), &pb.NodeName{
 			Str: i.serviceName + "/" + i.nodeName,
 		})
 		if err != nil {
@@ -76,7 +75,7 @@ func (i *Node) MountTime() (int64, error) {
 
 // 取消挂载
 func (i *Node) UnMount() error {
-	return i.Cluster.UnMount(i.serviceName+"/"+i.nodeName)
+	return i.Cluster.UnMount(i.serviceName + "/" + i.nodeName)
 }
 
 // 执行方法调用
@@ -95,7 +94,7 @@ func (i *Node) Call(method string, args ...interface{}) (err error) {
 	// 本地调用
 	if i.IsLocal() {
 		return i.call(method, args...)
-	}else {
+	} else {
 		return i.rpcCall(method, args...)
 	}
 }
@@ -144,14 +143,14 @@ func (i *Node) call(method string, args ...interface{}) (err error) {
 	params := make([]reflect.Value, len(args))
 	hasStream := false
 	for i, v := range args {
-		if _,ok := v.(*Stream); ok {
+		if _, ok := v.(*Stream); ok {
 			hasStream = true
 		}
 		params[i] = reflect.ValueOf(v)
 	}
 
 	fn := func() []reflect.Value {
-		if i,ok := i.iNode.(HookCall);ok {
+		if i, ok := i.iNode.(HookCall); ok {
 			return i.OnCall(method, methodValue.Call, params)
 		}
 		return methodValue.Call(params)
@@ -164,7 +163,7 @@ func (i *Node) call(method string, args ...interface{}) (err error) {
 			_ = fn()
 		})
 		return
-	}else {
+	} else {
 		res = fn()
 	}
 
@@ -189,16 +188,16 @@ var nilValue = reflect.Zero(reflect.ValueOf(struct {
 func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 	// 远程调用
 	var rpc pb.PeerRpcClient
-	rpc,err = i.Cluster.getRpcClient(i.addr)
+	rpc, err = i.Cluster.getRpcClient(i.addr)
 	if err != nil {
 		return err
 	}
 	var res *pb.CallAck
 	req := &pb.CallReq{
-		ServiceName:i.serviceName,
-		NodeName: i.nodeName,
-		Method: method,
-		Args:   nil,
+		ServiceName: i.serviceName,
+		NodeName:    i.nodeName,
+		Method:      method,
+		Args:        nil,
 	}
 
 	var vl []reflect.Value
@@ -208,7 +207,7 @@ func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 		if ai == nil || isErr(at.Type()) {
 			if ai == nil {
 				at = reflect.ValueOf(&myErr{S: "", IsNil: true})
-			}else {
+			} else {
 				at = reflect.ValueOf(&myErr{S: ai.(error).Error(), IsNil: false})
 			}
 		}
@@ -226,7 +225,7 @@ func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 	req.Args = make([][]byte, len(vl))
 	buff := bytes.NewBuffer([]byte{})
 	encoder := gob.NewEncoder(buff)
-	for i,v := range vl {
+	for i, v := range vl {
 		err := encoder.EncodeValue(v)
 		if err != nil {
 			return fmt.Errorf("call args[%d] encode err:%v", i, err)
@@ -235,7 +234,7 @@ func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 		buff.Reset()
 	}
 
-	res,err = rpc.Call(context.TODO(), req)
+	res, err = rpc.Call(context.TODO(), req)
 	if err != nil {
 		return err
 	}
@@ -252,8 +251,8 @@ func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 	}
 	cin := make([]reflect.Value, cbn)
 	reader := bytes.NewReader(nil)
-	decoder :=  gob.NewDecoder(reader)
-	for i:=0;i<cbn;i++ {
+	decoder := gob.NewDecoder(reader)
+	for i := 0; i < cbn; i++ {
 		it := cbt.In(i)
 		if isErr(it) {
 			it = reflect.TypeOf(&myErr{})
@@ -270,13 +269,13 @@ func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 			return fmt.Errorf("remote args[%d] decode err: %v", i, err)
 		}
 
-		if e,ok := nw.Interface().(*myErr);ok && e.IsNil == true {
+		if e, ok := nw.Interface().(*myErr); ok && e.IsNil {
 			nw = nilValue
 		}
 
 		if isPtr {
 			cin[i] = nw
-		}else {
+		} else {
 			cin[i] = nw.Elem()
 		}
 	}
@@ -291,8 +290,8 @@ func (i *Node) stream(method string, args ...interface{}) (err error) {
 }
 
 func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err error) {
-	x := make(chan []byte, 0)
-	y := make(chan []byte, 0)
+	x := make(chan []byte)
+	y := make(chan []byte)
 	stream = &Stream{
 		read:  &x,
 		write: &y,
@@ -302,23 +301,22 @@ func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err e
 			read:  &y,
 			write: &x,
 		})...)
-	}else {
-		rpc,err := i.Cluster.getRpcClient(i.addr)
+	} else {
+		rpc, err := i.Cluster.getRpcClient(i.addr)
 		if err != nil {
 			return nil, err
 		}
-		rpcStream,err := rpc.Stream(context.TODO())
+		rpcStream, err := rpc.Stream(context.TODO())
 		if err != nil {
 			return nil, err
 		}
 		stream.rpcClient = rpcStream
 		req := &pb.CallReq{
 			ServiceName: i.serviceName,
-			NodeName: i.nodeName,
-			Method: method,
-			Args: [][]byte{},
+			NodeName:    i.nodeName,
+			Method:      method,
+			Args:        [][]byte{},
 		}
-
 
 		var vl []reflect.Value
 		for _, ai := range args {
@@ -327,7 +325,7 @@ func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err e
 			if ai == nil || isErr(at.Type()) {
 				if ai == nil {
 					at = reflect.ValueOf(&myErr{S: "", IsNil: true})
-				}else {
+				} else {
 					at = reflect.ValueOf(&myErr{S: ai.(error).Error(), IsNil: false})
 				}
 			}
@@ -343,7 +341,7 @@ func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err e
 		req.Args = make([][]byte, len(vl))
 		buff := bytes.NewBuffer([]byte{})
 		encoder := gob.NewEncoder(buff)
-		for i,v := range vl {
+		for i, v := range vl {
 			err := encoder.EncodeValue(v)
 			if err != nil {
 				return nil, fmt.Errorf("call args[%d] encode err:%v", i, err)

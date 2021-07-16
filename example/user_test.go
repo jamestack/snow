@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"github.com/jamestack/snow"
 	"testing"
+
+	"github.com/jamestack/snow"
 )
 
 type Root struct {
@@ -45,13 +46,11 @@ func (u *User) OnCall(name string, call func([]reflect.Value) []reflect.Value, a
 // 挂载回调
 func (u *User) OnMount() {
 	fmt.Println("mount")
-	return
 }
 
 //
 func (u *User) OnUnMount() {
 	fmt.Println("unmount")
-	return
 }
 
 func (u *User) Name() string {
@@ -66,20 +65,20 @@ func (u *User) SetAge(age *int64) *int64 {
 
 func TestUserNode(t *testing.T) {
 	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
-	_,_ = cluster.Serve()
+	_, _ = cluster.Serve()
 
-	userManager,err := cluster.Mount("UserManager", &User{
+	userManager, err := cluster.Mount("UserManager", &User{
 		name: "james",
 	})
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	err = userManager.Call("Name", func(name string) {
+	_ = userManager.Call("Name", func(name string) {
 		fmt.Println("call done")
 	})
 
-	err = userManager.Call("TestErr", errors.New("myErr"),  func(name string, err error) {
+	err = userManager.Call("TestErr", errors.New("myErr"), func(name string, err error) {
 		fmt.Println(name, err)
 	})
 
@@ -88,18 +87,18 @@ func TestUserNode(t *testing.T) {
 
 func TestConsul(t *testing.T) {
 	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
-	done,err := cluster.Serve()
+	done, _ := cluster.Serve()
 	defer func() {
-		<- done
+		<-done
 	}()
 
-	userManager,err := cluster.Mount("UserManager", &User{
+	userManager, err := cluster.Mount("UserManager", &User{
 		name: "james",
 	})
 
 	fmt.Println(err)
 
-	list,err := cluster.FindAll("UserManager")
+	list, err := cluster.FindAll("UserManager")
 	fmt.Println(err, list)
 
 	err = userManager.Call("Name", func(name string) {
@@ -108,7 +107,6 @@ func TestConsul(t *testing.T) {
 	fmt.Println("call err:", err)
 
 }
-
 
 //
 //// Master

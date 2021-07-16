@@ -8,18 +8,18 @@ import (
 
 // 无限缓存Channel
 type Channel struct {
-	lock         sync.Mutex
-	nw           *sRing
-	nr           *sRing
-	receiveCh    chan interface{}
-	sendCh       chan interface{}
-	close        bool
-	cap          uint
-	addCap       uint
-	maxCap       uint
-	needSendSign uint32
+	lock            sync.Mutex
+	nw              *sRing
+	nr              *sRing
+	receiveCh       chan interface{}
+	sendCh          chan interface{}
+	close           bool
+	cap             uint
+	addCap          uint
+	maxCap          uint
+	needSendSign    uint32
 	needReceiveSign uint32
-	chanLock     sync.Mutex
+	chanLock        sync.Mutex
 }
 
 // 模拟无限缓存的Channel，size为最大容量，如果size为0则为无限容量
@@ -88,14 +88,14 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 		if q.cap < q.maxCap {
 			if q.cap < 1024 {
 				q.addCap = q.cap
-			}else {
+			} else {
 				q.addCap = q.cap / 4
 			}
-			if q.cap + q.addCap > q.maxCap {
+			if q.cap+q.addCap > q.maxCap {
 				q.addCap = q.maxCap - q.cap
 			}
 			q.addCaps(q.addCap)
-		}else {
+		} else {
 			q.needSendSign += 1
 			q.lock.Unlock()
 
@@ -111,7 +111,7 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 		q.lock.Unlock()
 
 		q.getReceiveChan() <- v
-	}else {
+	} else {
 		q.nw.value = v
 		q.nw = q.nw.next
 
@@ -122,8 +122,8 @@ func (q *Channel) Send(v interface{}) (ok bool) {
 }
 
 func (q *Channel) addCaps(addCap uint) {
-	list := make([]sRing, addCap, addCap)
-	for i:=uint(0);i<addCap-1;i++ {
+	list := make([]sRing, addCap)
+	for i := uint(0); i < addCap-1; i++ {
 		list[i].next = &list[i+1]
 	}
 
@@ -139,12 +139,12 @@ func (q *Channel) Cap() uint {
 
 // 阻塞直到取到值或者该队列关闭，模拟channel取值符，如果ok为false则表明此channel已关闭
 func (q *Channel) Receive() (v interface{}, ok bool) {
-	value,err := q.Get()
+	value, err := q.Get()
 	switch err {
 	case nil:
 		return value, true
 	case ErrEmpty:
-		v,ok = <-q.getReceiveChan()
+		v, ok = <-q.getReceiveChan()
 		return v, ok
 	case ErrClosed:
 		return nil, false
@@ -174,7 +174,7 @@ func (q *Channel) Get() (v interface{}, err error) {
 	if q.nr == q.nw {
 		if q.close {
 			err = ErrClosed
-		}else {
+		} else {
 			q.needReceiveSign += 1
 			err = ErrEmpty
 		}
@@ -185,9 +185,9 @@ func (q *Channel) Get() (v interface{}, err error) {
 	if q.needSendSign > 0 {
 		q.needSendSign -= 1
 		q.lock.Unlock()
-		v,_ = <- q.getSendChan()
+		v = <-q.getSendChan()
 		return v, nil
-	}else {
+	} else {
 		v = q.nr.value
 		q.nr.value = nil
 		q.nr = q.nr.next
@@ -209,7 +209,7 @@ func (q *Channel) Peek() (v interface{}, err error) {
 		if q.close {
 			q.lock.Unlock()
 			err = ErrClosed
-		}else {
+		} else {
 			q.lock.Unlock()
 			err = ErrEmpty
 		}
@@ -226,7 +226,7 @@ func (q *Channel) gc() {
 	//fmt.Println("cap", q.cap)
 	if q.nw != nil && q.nr != nil {
 		var next *sRing
-		for n:=q.nw; n.next != q.nw && n.next != q.nr;n = n.next {
+		for n := q.nw; n.next != q.nw && n.next != q.nr; n = n.next {
 			next = n.next
 			q.cap -= 1
 		}

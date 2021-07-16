@@ -25,7 +25,7 @@ func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address 
 		NodeName: nodeName,
 		Address:  address,
 	}
-	exService,ok := t.storage[serviceName]
+	exService, ok := t.storage[serviceName]
 	if !ok {
 		t.storage[serviceName] = &Service{
 			ServiceName: serviceName,
@@ -49,7 +49,7 @@ func (t *LocalProcessor) UnMountNode(serviceName string, nodeName string) error 
 		return errors.New("service not found")
 	}
 
-	for i,node := range exService.Nodes {
+	for i, node := range exService.Nodes {
 		if node.NodeName == nodeName {
 			exService.Nodes = append(exService.Nodes[:i], exService.Nodes[i+1:]...)
 			return nil
@@ -69,7 +69,7 @@ func (t *LocalProcessor) Find(serviceName string, nodeName string) (*Node, error
 		return nil, errors.New("service not found")
 	}
 
-	for _,node := range exService.Nodes {
+	for _, node := range exService.Nodes {
 		if node.NodeName == nodeName {
 			return node, nil
 		}
@@ -98,7 +98,7 @@ func (t *LocalProcessor) FindAllService() ([]*Service, error) {
 
 	list := make([]*Service, len(t.storage))
 	i := 0
-	for _,item := range t.storage {
+	for _, item := range t.storage {
 		list[i] = item
 		i++
 	}

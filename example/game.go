@@ -2,6 +2,7 @@ package example
 
 import (
 	"fmt"
+
 	"github.com/jamestack/snow"
 )
 
@@ -17,7 +18,7 @@ func (g *Game) ReadMsg(id string, stream *snow.Stream) {
 	fmt.Println("new Receive:", id)
 
 	for {
-		data,err := stream.ReadData()
+		data, err := stream.ReadData()
 		if err != nil {
 			fmt.Println("read data err:", err)
 			return

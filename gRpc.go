@@ -7,8 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"github.com/jamestack/snow/pb"
 	"strings"
+
+	"github.com/jamestack/snow/pb"
 )
 
 //// ======================== 主节点 ===========================
@@ -161,7 +162,7 @@ type PeerRpc struct {
 }
 
 // 远程调用
-func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, err error) {
+func (p *PeerRpc) Call(ctx context.Context, req *pb.CallReq) (ack *pb.CallAck, err error) {
 	ack = &pb.CallAck{}
 	defer func() {
 		errPanic := recover()
@@ -171,7 +172,7 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 		}
 	}()
 
-	node,err := p.cluster.Find(req.ServiceName +"/"+ req.NodeName)
+	node, err := p.cluster.Find(req.ServiceName + "/" + req.NodeName)
 	if err != nil {
 		err = errors.New("node not found: " + err.Error())
 		return
@@ -193,8 +194,8 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 	}
 	fin := make([]reflect.Value, fn)
 	reader := bytes.NewReader(nil)
-	decoder :=  gob.NewDecoder(reader)
-	for i:=0;i<fn;i++ {
+	decoder := gob.NewDecoder(reader)
+	for i := 0; i < fn; i++ {
 		tp := vmt.In(i)
 		if isErr(tp) {
 			tp = reflect.TypeOf(&myErr{})
@@ -215,18 +216,18 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 
 		if isPtr {
 			fin[i] = nw
-			if e := nw.Interface().(*myErr); e.IsNil == true {
+			if e := nw.Interface().(*myErr); e.IsNil {
 				fin[i] = nilValue
 			}
-		}else {
+		} else {
 			fin[i] = nw.Elem()
 		}
 	}
 
 	var fout []reflect.Value
-	if i,ok := node.iNode.(HookCall);ok {
+	if i, ok := node.iNode.(HookCall); ok {
 		fout = i.OnCall(req.Method, vm.Call, fin)
-	}else {
+	} else {
 		fout = vm.Call(fin)
 	}
 
@@ -235,11 +236,11 @@ func (p *PeerRpc) Call(ctx context.Context,req *pb.CallReq) (ack *pb.CallAck, er
 	}
 	buff := bytes.NewBuffer([]byte{})
 	encoder := gob.NewEncoder(buff)
-	for i,v := range fout {
+	for i, v := range fout {
 		if isErr(v.Type()) {
 			if v.IsNil() || v.Interface().(*myErr) == nil {
 				v = reflect.ValueOf(&myErr{S: "", IsNil: true})
-			}else {
+			} else {
 				v = reflect.ValueOf(&myErr{S: v.Interface().(error).Error(), IsNil: false})
 			}
 		}
@@ -268,7 +269,7 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 		}
 	}()
 
-	streamReq,err := stream.Recv()
+	streamReq, err := stream.Recv()
 	if err != nil {
 		return err
 	}
@@ -277,7 +278,7 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 		return errors.New("StreamReq not CallReq")
 	}
 
-	node, err := p.cluster.Find(req.ServiceName +"/"+ req.NodeName)
+	node, err := p.cluster.Find(req.ServiceName + "/" + req.NodeName)
 	if err != nil {
 		err = errors.New("node not found: " + err.Error())
 		return
@@ -293,15 +294,15 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 	vmt := vm.Type()
 
 	fn := vmt.NumIn()
-	if fn != len(req.Args) + 1 {
+	if fn != len(req.Args)+1 {
 		err = errors.New("call args length not match")
 		return
 	}
 	fin := make([]reflect.Value, fn)
 	reader := bytes.NewReader(nil)
-	decoder :=  gob.NewDecoder(reader)
+	decoder := gob.NewDecoder(reader)
 
-	for i:=0;i<fn-1;i++ {
+	for i := 0; i < fn-1; i++ {
 		tp := vmt.In(i)
 		if isErr(tp) {
 			tp = reflect.TypeOf(&myErr{})
@@ -322,10 +323,10 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 
 		if isPtr {
 			fin[i] = nw
-			if e := nw.Interface().(*myErr); e.IsNil == true {
+			if e := nw.Interface().(*myErr); e.IsNil {
 				fin[i] = nilValue
 			}
-		}else {
+		} else {
 			fin[i] = nw.Elem()
 		}
 	}
@@ -335,9 +336,9 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 		rpcServer: stream,
 	})
 
-	if i,ok := node.iNode.(HookCall);ok {
+	if i, ok := node.iNode.(HookCall); ok {
 		_ = i.OnCall(req.Method, vm.Call, fin)
-	}else {
+	} else {
 		_ = vm.Call(fin)
 	}
 	return nil
@@ -346,12 +347,12 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 type Stream struct {
 	rpcClient pb.PeerRpc_StreamClient
 	rpcServer pb.PeerRpc_StreamServer
-	write    *chan []byte
-	read     *chan []byte
+	write     *chan []byte
+	read      *chan []byte
 }
 
-func (s *Stream)Read(p []byte) (n int, err error) {
-	data,err := s.ReadData()
+func (s *Stream) Read(p []byte) (n int, err error) {
+	data, err := s.ReadData()
 	if err != nil {
 		return 0, err
 	}
@@ -361,10 +362,10 @@ func (s *Stream)Read(p []byte) (n int, err error) {
 	return
 }
 
-func (s *Stream)ReadData() (data []byte, err error) {
-	switch  {
+func (s *Stream) ReadData() (data []byte, err error) {
+	switch {
 	case s.rpcClient != nil:
-		res,err := s.rpcClient.Recv()
+		res, err := s.rpcClient.Recv()
 		if err != nil {
 			return nil, err
 		}
@@ -373,13 +374,13 @@ func (s *Stream)ReadData() (data []byte, err error) {
 			err = s.rpcClient.CloseSend()
 			if err != nil {
 				return nil, err
-			}else {
+			} else {
 				return s.ReadData()
 			}
 		}
 		return b.Bytes, nil
 	case s.rpcServer != nil:
-		res,err := s.rpcServer.Recv()
+		res, err := s.rpcServer.Recv()
 		if err != nil {
 			return nil, err
 		}
@@ -390,7 +391,7 @@ func (s *Stream)ReadData() (data []byte, err error) {
 		return b.Bytes, nil
 	case s.read != nil:
 		var ok bool
-		data,ok = <- *s.read
+		data, ok = <-*s.read
 		if !ok {
 			err = errors.New("stream is closed")
 		}
@@ -401,7 +402,7 @@ func (s *Stream)ReadData() (data []byte, err error) {
 }
 
 func (s *Stream) Write(data []byte) (n int, err error) {
-	switch  {
+	switch {
 	case s.rpcClient != nil:
 		err = s.rpcClient.Send(&pb.StreamMsg{
 			StreamType: &pb.StreamMsg_Data{
@@ -436,12 +437,12 @@ func (s *Stream) Write(data []byte) (n int, err error) {
 }
 
 func (s *Stream) Close() (err error) {
-	switch  {
+	switch {
 	case s.rpcClient != nil:
 		err = s.rpcClient.CloseSend()
 	case s.rpcServer != nil:
 		err = s.rpcServer.Send(&pb.StreamMsg{
-			StreamType: &pb.StreamMsg_Req{Req:&pb.CallReq{}},
+			StreamType: &pb.StreamMsg_Req{Req: &pb.CallReq{}},
 		})
 		s.rpcServer = nil
 	case *s.read != nil || *s.write != nil:
@@ -460,15 +461,15 @@ func (s *Stream) Close() (err error) {
 }
 
 // ======================================== consul healthy check =======================================
-func (p *PeerRpc) Check(ctx context.Context, req *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error)  {
+func (p *PeerRpc) Check(ctx context.Context, req *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error) {
 	status := pb.HealthCheckResponse_SERVICE_UNKNOWN
 
 	if req.Service != "" {
 		s := strings.Split(req.Service[1:], "/")
-		_,ok := p.cluster.localNodes.Load(s[0] +"/"+ s[1])
+		_, ok := p.cluster.localNodes.Load(s[0] + "/" + s[1])
 		if ok {
 			status = pb.HealthCheckResponse_SERVING
-		}else {
+		} else {
 			status = pb.HealthCheckResponse_NOT_SERVING
 		}
 	}
@@ -476,16 +477,16 @@ func (p *PeerRpc) Check(ctx context.Context, req *pb.HealthCheckRequest) (*pb.He
 	//fmt.Println("check", req.Service, status)
 
 	return &pb.HealthCheckResponse{
-		Status:  status,
+		Status: status,
 	}, nil
 }
 
-func (p *PeerRpc) Watch(req *pb.HealthCheckRequest, watcher pb.Health_WatchServer) error  {
+func (p *PeerRpc) Watch(req *pb.HealthCheckRequest, watcher pb.Health_WatchServer) error {
 	//fmt.Println("watch", req.Service)
 	return nil
 }
 
-func (p *PeerRpc) MountTime(ctx context.Context,req *pb.NodeName) (ack *pb.MountTimeAck, err error) {
+func (p *PeerRpc) MountTime(ctx context.Context, req *pb.NodeName) (ack *pb.MountTimeAck, err error) {
 	ack = &pb.MountTimeAck{}
 	defer func() {
 		errPanic := recover()
@@ -495,7 +496,7 @@ func (p *PeerRpc) MountTime(ctx context.Context,req *pb.NodeName) (ack *pb.Mount
 		}
 	}()
 
-	node,err := p.cluster.Find(req.Str)
+	node, err := p.cluster.Find(req.Str)
 	if err != nil {
 		err = errors.New("node not found: " + err.Error())
 		return
@@ -511,7 +512,7 @@ func (p *PeerRpc) MountTime(ctx context.Context,req *pb.NodeName) (ack *pb.Mount
 	return
 }
 
-func (p *PeerRpc) UnMount(ctx context.Context,req *pb.NodeName) (ack *pb.Empty, err error) {
+func (p *PeerRpc) UnMount(ctx context.Context, req *pb.NodeName) (ack *pb.Empty, err error) {
 	ack = &pb.Empty{}
 	defer func() {
 		errPanic := recover()
@@ -521,7 +522,7 @@ func (p *PeerRpc) UnMount(ctx context.Context,req *pb.NodeName) (ack *pb.Empty, 
 		}
 	}()
 
-	node,err := p.cluster.Find(req.Str)
+	node, err := p.cluster.Find(req.Str)
 	if err != nil {
 		err = errors.New("node not found: " + err.Error())
 		return

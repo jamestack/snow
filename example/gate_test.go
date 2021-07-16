@@ -2,14 +2,15 @@ package example
 
 import (
 	"fmt"
-	"github.com/jamestack/snow"
 	"testing"
+
+	"github.com/jamestack/snow"
 )
 
 // 启动网关节点
-func TestGate(t *testing.T)  {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8000","127.0.0.1:8000")
-	done,err := cluster.Serve()
+func TestGate(t *testing.T) {
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
+	done, err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -19,11 +20,11 @@ func TestGate(t *testing.T)  {
 	}()
 
 	// 挂载3个网关节点
-	_, err = cluster.Mount("Gate/1", &Gate{
+	_, _ = cluster.Mount("Gate/1", &Gate{
 		ListenAddr: "127.0.0.1:81",
 		TargetNode: "Game/1",
 	})
-	_, err = cluster.Mount("Gate/2", &Gate{
+	_, _ = cluster.Mount("Gate/2", &Gate{
 		ListenAddr: "127.0.0.1:82",
 		TargetNode: "Game/1",
 	})
@@ -36,9 +37,9 @@ func TestGate(t *testing.T)  {
 }
 
 // 启动游戏节点
-func TestGame(t *testing.T)  {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8001","127.0.0.1:8001")
-	done,err := cluster.Serve()
+func TestGame(t *testing.T) {
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+	done, err := cluster.Serve()
 	fmt.Println(err)
 	defer func() {
 		<-done

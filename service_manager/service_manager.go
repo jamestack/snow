@@ -5,37 +5,38 @@ import (
 	"net"
 	"os"
 	"runtime"
-	"github.com/jamestack/snow"
 	"sort"
+
+	"github.com/jamestack/snow"
 )
 
 type ServiceManager struct {
 	*snow.Node
-	listener net.Listener
-	Service     []ServiceInfo           // 可启动的服务定义
-	WebListenAddr string				// 是否启动web管理界面
+	listener      net.Listener
+	Service       []ServiceInfo // 可启动的服务定义
+	WebListenAddr string        // 是否启动web管理界面
 }
 
 // 参数信息
 type ParamInfo struct {
-	Name string     // 名称
-	Remark string   // 备注
-	Default string  // 默认值
+	Name    string // 名称
+	Remark  string // 备注
+	Default string // 默认值
 }
 
 // 方法信息
 type MethodInfo struct {
-	Name string         // 名称
-	Remark string       // 备注
-	Params []ParamInfo  // 参数信息
+	Name   string      // 名称
+	Remark string      // 备注
+	Params []ParamInfo // 参数信息
 }
 
 // 服务信息
 type ServiceInfo struct {
-	Name string            // 服务名
-	Remark string          // 备注
-	Methods []MethodInfo   // 可执行的方法名
-	Fields []string        // 可查看的属性
+	Name    string       // 服务名
+	Remark  string       // 备注
+	Methods []MethodInfo // 可执行的方法名
+	Fields  []string     // 可查看的属性
 }
 
 type RuntimeInfo struct {
@@ -48,26 +49,26 @@ type RuntimeInfo struct {
 }
 
 type OsInfo struct {
-	Hostname string  // 主机名
-	Ip string        // 本地ip
+	Hostname string // 主机名
+	Ip       string // 本地ip
 }
 
 type ActiveService struct {
-	Name string
+	Name      string
 	MountTime int64
 }
 
 // 节点实例信息
 type NodeInfo struct {
-	Name string
-	Runtime RuntimeInfo   // go运行时信息
-	SnowVersion string    // Snow版本号
-	Os OsInfo             // 主机信息
-	Services []ServiceInfo     // 已启动服务
-	Active []ActiveService
+	Name        string
+	Runtime     RuntimeInfo   // go运行时信息
+	SnowVersion string        // Snow版本号
+	Os          OsInfo        // 主机信息
+	Services    []ServiceInfo // 已启动服务
+	Active      []ActiveService
 }
 
-func getClientIp() (string ,error) {
+func getClientIp() (string, error) {
 	addrs, err := net.InterfaceAddrs()
 
 	if err != nil {
@@ -84,43 +85,43 @@ func getClientIp() (string ,error) {
 		}
 	}
 
-	return "", errors.New("Can not find the client ip address!")
+	return "", errors.New("can not find the client ip address")
 }
 
 // 节点信息
 func (s *ServiceManager) NodeInfo() NodeInfo {
-	hostName,err := os.Hostname()
+	hostName, err := os.Hostname()
 	if err != nil {
 		hostName = "UnKnow"
 	}
-	ip,err := getClientIp()
+	ip, err := getClientIp()
 	if err != nil {
 		ip = "UnKnow"
 	}
-	res :=  NodeInfo{
+	res := NodeInfo{
 		Name: s.Name(),
 		Runtime: RuntimeInfo{
-			GOOS: runtime.GOOS,
-			GOARCH: runtime.GOARCH,
-			GoVersion: runtime.Version(),
-			NumCpu: runtime.NumCPU(),
+			GOOS:         runtime.GOOS,
+			GOARCH:       runtime.GOARCH,
+			GoVersion:    runtime.Version(),
+			NumCpu:       runtime.NumCPU(),
 			NumGoroutine: runtime.NumGoroutine(),
-			NumCgoCall: runtime.NumCgoCall(),
+			NumCgoCall:   runtime.NumCgoCall(),
 		},
 		Os: OsInfo{
 			Hostname: hostName,
-			Ip: ip,
+			Ip:       ip,
 		},
 		SnowVersion: snow.Version,
-		Services: s.Service,
+		Services:    s.Service,
 	}
 
-	for _,item := range s.FindLocalAll() {
+	for _, item := range s.FindLocalAll() {
 		if item.Name() == s.Name() {
 			continue
 		}
 
-		mTime,_ := item.MountTime()
+		mTime, _ := item.MountTime()
 		res.Active = append(res.Active, ActiveService{
 			Name:      item.Name(),
 			MountTime: mTime,
@@ -128,10 +129,10 @@ func (s *ServiceManager) NodeInfo() NodeInfo {
 	}
 
 	sort.Slice(res.Active, func(i, j int) bool {
-		a,b := res.Active[i], res.Active[j]
+		a, b := res.Active[i], res.Active[j]
 		if a.MountTime == b.MountTime {
 			return a.Name < b.Name
-		}else {
+		} else {
 			return a.MountTime < b.MountTime
 		}
 	})

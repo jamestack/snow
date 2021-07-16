@@ -7,13 +7,13 @@ import (
 )
 
 type GoPool struct {
-	workerNum int32  // 已启动的worker数
-	activeNum int32  // 正在执行任务的worker数
-	ch        *Channel      // 任务主线队列
+	workerNum int32    // 已启动的worker数
+	activeNum int32    // 正在执行任务的worker数
+	ch        *Channel // 任务主线队列
 	pq        *PriorityQueue
 	peekTime  int64
 	t         *time.Timer
-	lock sync.Mutex
+	lock      sync.Mutex
 }
 
 func NewGoPool(size uint32) *GoPool {
@@ -31,7 +31,7 @@ func (p *GoPool) SetWorkerNum(size uint32) {
 		}
 
 		addNum := int32(size) - p.workerNum
-		for i:=int32(0); i<addNum; i++ {
+		for i := int32(0); i < addNum; i++ {
 			w := worker{
 				pool: p,
 			}
@@ -40,7 +40,7 @@ func (p *GoPool) SetWorkerNum(size uint32) {
 
 	case int32(size) < p.workerNum:
 		decNum := p.workerNum - int32(size)
-		for i:=int32(0);i<decNum;i++ {
+		for i := int32(0); i < decNum; i++ {
 			p.ch.Send(true)
 		}
 	}
@@ -101,7 +101,7 @@ func (p *GoPool) initAfterFunc() error {
 						break
 					}
 
-					f,_,ok := p.pq.Pop()
+					f, _, ok := p.pq.Pop()
 					if !ok {
 						break
 					}
@@ -111,7 +111,7 @@ func (p *GoPool) initAfterFunc() error {
 						break
 					}
 
-					_,pt,ok := p.pq.Peek()
+					_, pt, ok := p.pq.Peek()
 					if !ok {
 						p.peekTime = 1<<63 - 1
 						break
@@ -121,7 +121,7 @@ func (p *GoPool) initAfterFunc() error {
 
 					p.lock.Lock()
 					p.peekTime = tn
-					p.t.Reset(time.Duration(tn-time.Now().UnixNano()))
+					p.t.Reset(time.Duration(tn - time.Now().UnixNano()))
 					p.lock.Unlock()
 				}
 			})
@@ -153,14 +153,14 @@ func (p *GoPool) AfterFunc(d time.Duration, fn func()) (done chan bool, err erro
 	p.lock.Lock()
 	if tn < p.peekTime {
 		p.peekTime = tn
-		p.t.Reset(time.Duration(tn-time.Now().UnixNano()))
+		p.t.Reset(time.Duration(tn - time.Now().UnixNano()))
 	}
 	p.lock.Unlock()
 	return
 }
 
 type worker struct {
-	pool       *GoPool
+	pool *GoPool
 }
 
 func (w *worker) start() <-chan bool {
@@ -178,16 +178,16 @@ func (w *worker) start() <-chan bool {
 			if w.pool.ch == nil {
 				break
 			}
-			fn,ok := w.pool.ch.Receive()
+			fn, ok := w.pool.ch.Receive()
 			if !ok {
 				break
 			}
 
-			if _,ok = fn.(bool);ok {
+			if _, ok = fn.(bool); ok {
 				break
 			}
 
-			func(){
+			func() {
 				atomic.AddInt32(&w.pool.activeNum, 1)
 				defer func() {
 					atomic.AddInt32(&w.pool.activeNum, -1)

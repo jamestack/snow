@@ -3,9 +3,10 @@ package example
 import (
 	"errors"
 	"fmt"
-	"github.com/jamestack/snow/promise"
 	"testing"
 	"time"
+
+	"github.com/jamestack/snow/promise"
 )
 
 type Person struct {
@@ -22,8 +23,6 @@ func (p *Person) SetName(resolve promise.Resolve, reject promise.Reject, args ..
 		p.name = name
 		resolve("ok")
 	})
-
-	return
 }
 
 func (p *Person) Say(resolve promise.Resolve, reject promise.Reject, args ...promise.Any) {

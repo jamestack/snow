@@ -4,7 +4,7 @@ OUT_PATH="."
 
 protoc -I . --go_out=plugins=grpc:"$OUT_PATH" *.proto
 
-if [ $? != 0 ];then
+if [ $? != 0 ]; then
   echo "build protobuf fail!"
   exit
 fi

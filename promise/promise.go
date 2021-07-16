@@ -12,13 +12,12 @@ type Fn func(resolve Resolve, reject Reject, args ...Any) // func RPC_Login(a in
 type ErrFn func(errs ...error)
 
 type promise struct {
-	lock sync.Mutex
+	lock     sync.Mutex
 	then     []Fn
-	catch ErrFn
-	finally func()
+	catch    ErrFn
 	resolves *[]Any
-	rejects *[]error
-	done chan bool
+	rejects  *[]error
+	done     chan bool
 }
 
 func (p *promise) Then(fn Fn) Promise {
@@ -66,7 +65,7 @@ func (p *promise) run(args ...Any) {
 	if len(p.then) > 0 {
 		fn = p.then[0]
 		p.then = p.then[1:]
-	}else {
+	} else {
 		return
 	}
 
@@ -88,14 +87,12 @@ func (p *promise) run(args ...Any) {
 
 		if len(p.then) > 0 {
 			p.run(resolve...)
-		}else {
+		} else {
 			p.resolves = &resolve
 			if p.catch != nil {
 				p.done <- true
 			}
 		}
-
-		return
 	}, func(err ...error) {
 		p.lock.Lock()
 		defer p.lock.Unlock()
@@ -108,11 +105,9 @@ func (p *promise) run(args ...Any) {
 		if p.catch != nil {
 			p.catch(err...)
 			p.done <- true
-		}else {
+		} else {
 			p.rejects = &err
 		}
-
-		return
 	}, args...)
 }
 

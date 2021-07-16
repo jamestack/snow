@@ -2,11 +2,12 @@ package example
 
 import (
 	"fmt"
-	"github.com/jamestack/snow"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jamestack/snow"
 )
 
 func TestGoPool(t *testing.T) {
@@ -36,7 +37,7 @@ func TestGoPool(t *testing.T) {
 	})
 	var num int32 = 0
 	wg := sync.WaitGroup{}
-	for i :=0; i<200000;i++ {
+	for i := 0; i < 200000; i++ {
 		wg.Add(1)
 		p.AfterFunc(2*time.Second, func() {
 			wg.Done()
@@ -47,5 +48,5 @@ func TestGoPool(t *testing.T) {
 	wg.Wait()
 	fmt.Println("hello after 2s", num, time.Now())
 
-	<-time.After(5*time.Second)
+	<-time.After(5 * time.Second)
 }

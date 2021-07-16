@@ -1,16 +1,16 @@
 package mount_processor
 
 type Service struct {
-	ServiceName string	// 服务名
-	Nodes []*Node		// 节点列表
-	CreateTime int64     // 缓存时间
+	ServiceName string  // 服务名
+	Nodes       []*Node // 节点列表
+	CreateTime  int64   // 缓存时间
 }
 
 // 节点抽象
 type Node struct {
-	NodeName string // 节点名
-	Address  string // 节点地址
-	CreateTime int64 // 缓存时间
+	NodeName   string // 节点名
+	Address    string // 节点地址
+	CreateTime int64  // 缓存时间
 }
 
 // 服务挂载点抽象处理器抽象

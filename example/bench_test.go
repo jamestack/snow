@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"github.com/jamestack/snow"
 	"sync"
 	"testing"
+
+	"github.com/jamestack/snow"
 )
 
 func (u *User) Play(name string) string {
@@ -24,13 +25,13 @@ func init() {
 
 func TestBenchNodeA(t *testing.T) {
 	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
-	done,err := cluster.Serve()
+	done, err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	_,err = cluster.Mount("james", &User{name: "james"})
+	_, err = cluster.Mount("james", &User{name: "james"})
 	fmt.Println(err)
 
 	s := <-done
@@ -38,8 +39,8 @@ func TestBenchNodeA(t *testing.T) {
 }
 
 func TestBenchNodeB(t *testing.T) {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8001","127.0.0.1:8001")
-	done,err := cluster.Serve()
+	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
+	done, err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -47,7 +48,6 @@ func TestBenchNodeB(t *testing.T) {
 	defer func() {
 		<-done
 	}()
-
 
 	jacks, err := cluster.Mount("jacks", &User{name: "jacks"})
 	if err != nil {
@@ -59,7 +59,7 @@ func TestBenchNodeB(t *testing.T) {
 
 	// 本地调用
 	log.Println("local rpc start")
-	for i:=0;i<MAX_ROUND;i++ {
+	for i := 0; i < MAX_ROUND; i++ {
 		name := fmt.Sprintf("section-%d", i+1)
 		err = jacks.Call("Play", name, func(name string) {
 			//fmt.Println("play done", name)
@@ -72,7 +72,7 @@ func TestBenchNodeB(t *testing.T) {
 	log.Println("local rpc end")
 	log.Println()
 
-	james,err := cluster.Find("james")
+	james, err := cluster.Find("james")
 	if err != nil {
 		panic(err)
 	}
@@ -84,7 +84,7 @@ func TestBenchNodeB(t *testing.T) {
 
 	// 远程调用
 	log.Println("rpc start")
-	for i:=0;i<MAX_ROUND;i++ {
+	for i := 0; i < MAX_ROUND; i++ {
 		name := fmt.Sprintf("section-%d", i+1)
 		err = james.Call("Play", name, func(name string) {
 			//fmt.Println("play done", name)
@@ -100,7 +100,7 @@ func TestBenchNodeB(t *testing.T) {
 	// 远程异步调用
 	var wg sync.WaitGroup
 	log.Println("async rpc start")
-	for i:=0;i<MAX_ROUND;i++ {
+	for i := 0; i < MAX_ROUND; i++ {
 		name := fmt.Sprintf("section-%d", i+1)
 		wg.Add(1)
 		go func() {

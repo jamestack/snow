@@ -2,8 +2,9 @@ package service_manager
 
 import (
 	"fmt"
-	"github.com/jamestack/snow"
 	"testing"
+
+	"github.com/jamestack/snow"
 )
 
 type User struct {
@@ -12,7 +13,7 @@ type User struct {
 
 func TestServiceManager(t *testing.T) {
 	cluster := snow.NewClusterWithLocal()
-	done,err := cluster.Serve()
+	done, err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -22,8 +23,8 @@ func TestServiceManager(t *testing.T) {
 		<-done
 	}()
 
-	_,err = cluster.MountRandNode("SnowNodes", &ServiceManager{
-		Service:       []ServiceInfo{
+	_, _ = cluster.MountRandNode("SnowNodes", &ServiceManager{
+		Service: []ServiceInfo{
 			{
 				Name:    "Gate",
 				Remark:  "网关组件",
@@ -34,12 +35,10 @@ func TestServiceManager(t *testing.T) {
 		WebListenAddr: "127.0.0.1:8080",
 	})
 
-	_,_ = cluster.MountRandNode("Gate", &User{})
-	_,_ = cluster.MountRandNode("Gate", &User{})
-	_,_ = cluster.MountRandNode("Gate", &User{})
-	_,_ = cluster.MountRandNode("Gate", &User{})
-	_,_ = cluster.MountRandNode("Gate", &User{})
-
-
+	_, _ = cluster.MountRandNode("Gate", &User{})
+	_, _ = cluster.MountRandNode("Gate", &User{})
+	_, _ = cluster.MountRandNode("Gate", &User{})
+	_, _ = cluster.MountRandNode("Gate", &User{})
+	_, _ = cluster.MountRandNode("Gate", &User{})
 
 }

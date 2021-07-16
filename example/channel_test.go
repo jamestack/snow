@@ -2,9 +2,10 @@ package example
 
 import (
 	"fmt"
-	"github.com/jamestack/snow"
 	"testing"
 	"time"
+
+	"github.com/jamestack/snow"
 )
 
 func TestChannel(t *testing.T) {
@@ -34,13 +35,13 @@ func TestChannelBench(t *testing.T) {
 	ch := snow.Channel{}
 
 	fmt.Println("send start", time.Now())
-	for i:=0;i<100;i++ {
+	for i := 0; i < 100; i++ {
 		ch.Send(i)
 	}
 	fmt.Println("send end", time.Now())
 
 	fmt.Println("get start", time.Now())
-	for i:=0;i<100;i++ {
+	for i := 0; i < 100; i++ {
 		fmt.Println(ch.Get())
 	}
 	fmt.Println("get end", time.Now())
@@ -50,7 +51,7 @@ func TestChannelBench(t *testing.T) {
 	fmt.Println("close end")
 
 	for {
-		_,ok := ch.Receive()
+		_, ok := ch.Receive()
 		if !ok {
 			fmt.Println("closed")
 			break
@@ -66,19 +67,12 @@ func benchSysChanel(num int64) (res int64) {
 	ch := make(chan int64, 1024)
 	done := make(chan bool)
 	go func() {
-		for {
-			select {
-			case _,ok := <-ch:
-				if !ok {
-					done <- true
-					return
-				}
-
-				res += 1
-			}
+		for range ch {
+			res += 1
 		}
+		done <- true
 	}()
-	for i:=int64(1);i <= num;i++ {
+	for i := int64(1); i <= num; i++ {
 		ch <- i
 	}
 	close(ch)
@@ -93,7 +87,7 @@ func benchSnowChannel(num int64) (res int64) {
 
 	go func() {
 		for {
-			_,ok := ch.Receive()
+			_, ok := ch.Receive()
 			if !ok {
 				done <- true
 				return
@@ -103,7 +97,7 @@ func benchSnowChannel(num int64) (res int64) {
 		}
 	}()
 
-	for i:=int64(1);i <= num;i++ {
+	for i := int64(1); i <= num; i++ {
 		ch.Send(i)
 	}
 	ch.Close()
@@ -116,12 +110,12 @@ func benchTwoChannel(num int64) {
 	fmt.Println("benchSysChanel start")
 	start := time.Now()
 	fmt.Println(benchSysChanel(num))
-	fmt.Println("benchSysChanel end", time.Now().Sub(start))
+	fmt.Println("benchSysChanel end", time.Since(start))
 
 	fmt.Println("benchSnowChannel start")
 	start = time.Now()
 	fmt.Println(benchSnowChannel(num))
-	fmt.Println("benchSnowChannel end", time.Now().Sub(start))
+	fmt.Println("benchSnowChannel end", time.Since(start))
 }
 
 func TestBenchChanelChannel(t *testing.T) {

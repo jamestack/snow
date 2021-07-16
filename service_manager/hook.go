@@ -12,10 +12,10 @@ func (s *ServiceManager) OnMount() {
 	var mux = http.NewServeMux()
 
 	mux.HandleFunc("/", s.hRoot)
-	mux.HandleFunc("/api/nodes", s.hNodes)  // 在线节点列表
+	mux.HandleFunc("/api/nodes", s.hNodes) // 在线节点列表
 
 	var err error
-	s.listener,err = net.Listen("tcp", s.WebListenAddr)
+	s.listener, err = net.Listen("tcp", s.WebListenAddr)
 	if err != nil {
 		fmt.Println("ServiceManager net.Listen() err:", err)
 		return
@@ -26,7 +26,7 @@ func (s *ServiceManager) OnMount() {
 }
 
 // 节点移除挂载事件
-func (s *ServiceManager)OnUnMount() {
+func (s *ServiceManager) OnUnMount() {
 	// 关闭websocket监听
 	if s.listener != nil {
 		_ = s.listener.Close()
