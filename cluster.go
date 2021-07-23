@@ -449,5 +449,7 @@ func (c *Cluster) UnMount(name string) error {
 		}()
 	}
 
+	fmt.Println("[Snow] UnMount Node " + name + " Success")
+
 	return nil
 }

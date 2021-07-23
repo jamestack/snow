@@ -12,7 +12,9 @@ func (s *ServiceManager) OnMount() {
 	var mux = http.NewServeMux()
 
 	mux.HandleFunc("/", s.hRoot)
-	mux.HandleFunc("/api/nodes", s.hNodes) // 在线节点列表
+	mux.HandleFunc("/api/node/list", s.hNodes)      // 在线节点列表
+	mux.HandleFunc("/api/node/mount", s.hMount)     // 在线节点列表
+	mux.HandleFunc("/api/node/unmount", s.hUnMount) // 在线节点列表
 
 	var err error
 	s.listener, err = net.Listen("tcp", s.WebListenAddr)

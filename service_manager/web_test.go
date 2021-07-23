@@ -24,21 +24,18 @@ func TestServiceManager(t *testing.T) {
 	}()
 
 	_, _ = cluster.MountRandNode("SnowNodes", &ServiceManager{
+		WebListenAddr: "127.0.0.1:8080",
 		Service: []ServiceInfo{
 			{
-				Name:    "Gate",
+				Name: "Gate",
+				Inode: func() interface{} {
+					return &User{}
+				},
 				Remark:  "网关组件",
 				Methods: nil,
 				Fields:  nil,
 			},
 		},
-		WebListenAddr: "127.0.0.1:8080",
 	})
-
-	_, _ = cluster.MountRandNode("Gate", &User{})
-	_, _ = cluster.MountRandNode("Gate", &User{})
-	_, _ = cluster.MountRandNode("Gate", &User{})
-	_, _ = cluster.MountRandNode("Gate", &User{})
-	_, _ = cluster.MountRandNode("Gate", &User{})
 
 }

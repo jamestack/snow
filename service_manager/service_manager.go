@@ -33,10 +33,11 @@ type MethodInfo struct {
 
 // 服务信息
 type ServiceInfo struct {
-	Name    string       // 服务名
-	Remark  string       // 备注
-	Methods []MethodInfo // 可执行的方法名
-	Fields  []string     // 可查看的属性
+	Name    string             // 服务名
+	Inode   func() interface{} `json:"-"` // iNode对象
+	Remark  string             // 备注
+	Methods []MethodInfo       // 可执行的方法名
+	Fields  []string           // 可查看的属性
 }
 
 type RuntimeInfo struct {
@@ -114,6 +115,7 @@ func (s *ServiceManager) NodeInfo() NodeInfo {
 		},
 		SnowVersion: snow.Version,
 		Services:    s.Service,
+		Active:      []ActiveService{},
 	}
 
 	for _, item := range s.FindLocalAll() {

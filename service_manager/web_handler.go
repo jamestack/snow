@@ -1,10 +1,15 @@
 package service_manager
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
+
+//go:embed html
+var fs embed.FS
 
 type jsonRes struct {
 	Code int
@@ -38,7 +43,8 @@ func jsonError(code int, err string) []byte {
 }
 
 func (s *ServiceManager) hRoot(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte(html))
+	data, _ := fs.ReadFile("html/index.html")
+	w.Write(data)
 }
 
 // 在线节点列表
@@ -61,4 +67,54 @@ func (s *ServiceManager) hNodes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write(jsonSuccess(res))
+}
+
+// 挂载节点
+func (s *ServiceManager) hMount(w http.ResponseWriter, r *http.Request) {
+	var service *ServiceInfo
+
+	name := r.PostFormValue("name")
+	for _, item := range s.Service {
+		if item.Name == name {
+			service = &item
+		}
+	}
+
+	if service == nil {
+		w.Write(jsonError(-1, "node not found"))
+		return
+	}
+
+	var err error
+	if strings.Contains(name, "/") {
+		_, err = s.Cluster.Mount(name, service.Inode())
+	} else {
+		_, err = s.Cluster.MountRandNode(name, service.Inode())
+	}
+
+	if err != nil {
+		w.Write(jsonError(-2, err.Error()))
+		return
+	}
+
+	w.Write(jsonSuccess(nil))
+}
+
+// 挂载节点
+func (s *ServiceManager) hUnMount(w http.ResponseWriter, r *http.Request) {
+	name := r.PostFormValue("name")
+
+	node, err := s.Cluster.Find(name)
+	if err != nil {
+		w.Write(jsonError(-1, err.Error()))
+		return
+	}
+
+	err = node.UnMount()
+	if err != nil {
+		w.Write(jsonError(-2, err.Error()))
+		return
+	}
+
+	w.Write(jsonSuccess(nil))
 }
