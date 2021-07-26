@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul/api"
-	"github.com/jamestack/snow/mount_processor"
 	"github.com/jamestack/snow/pb"
 	"google.golang.org/grpc"
 )
@@ -28,7 +27,7 @@ type Cluster struct {
 	findAllLock sync.Mutex
 	eventPool   *GoPool
 	// 挂载点处理器
-	mountProcessor mount_processor.IMountProcessor
+	mountProcessor IMountProcessor
 	// 挂载点缓存
 	findCache    sync.Map // map[string]*mount_processor.Node
 	findAllCache sync.Map // map[string]*mount_processor.Service
@@ -90,12 +89,13 @@ func (c *Cluster) getRpcClient(addr string) (client pb.PeerRpcClient, err error)
 // 初始化集群
 // @listenAddr  rpc监听地址
 // &peerAddr    rpc对外访问的地址
-func NewCluster(listenAddr string, peerAddr string, mountProcessor mount_processor.IMountProcessor) *Cluster {
+func NewCluster(listenAddr string, peerAddr string, mountProcessor IMountProcessor) *Cluster {
 	c := &Cluster{
 		mountProcessor: mountProcessor,
 		listenAddr:     listenAddr,
 		peerAddr:       peerAddr,
 		eventPool:      NewGoPool(uint32(runtime.NumCPU()) * 4),
+		server: grpc.NewServer(),
 	}
 
 	if mountProcessor == nil {
@@ -105,9 +105,13 @@ func NewCluster(listenAddr string, peerAddr string, mountProcessor mount_process
 	return c
 }
 
+func (c *Cluster) GetPeerAddr() string {
+	return c.peerAddr
+}
+
 // 本地集群
 func NewClusterWithLocal() *Cluster {
-	mountProcessor := &mount_processor.LocalProcessor{}
+	mountProcessor := &LocalProcessor{}
 	return NewCluster("", "", mountProcessor)
 }
 
@@ -115,11 +119,15 @@ func NewClusterWithLocal() *Cluster {
 // @listenAddr  rpc监听地址
 // &peerAddr    rpc对外访问的地址
 func NewClusterWithConsul(listenAddr string, peerAddr string, client ...*api.Client) *Cluster {
-	mountProcessor := &mount_processor.ConsulProcessor{}
+	mountProcessor := &ConsulProcessor{}
 	if len(client) != 0 {
 		mountProcessor.Client = client[0]
 	}
 	return NewCluster(listenAddr, peerAddr, mountProcessor)
+}
+
+func (c *Cluster) GrpcServer() *grpc.Server {
+	return c.server
 }
 
 // 开始监听本
@@ -127,7 +135,7 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 	ch := make(chan os.Signal)
 	done = make(chan os.Signal)
 	// 初始化挂载点处理器
-	err = c.mountProcessor.Init()
+	err = c.mountProcessor.Init(c)
 	if err != nil {
 		return nil, err
 	}
@@ -189,18 +197,16 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 		return nil, err
 	}
 
-	server := grpc.NewServer()
 	rpc := &PeerRpc{cluster: c}
 	// 用于支持集群间通信
-	pb.RegisterPeerRpcServer(server, rpc)
+	pb.RegisterPeerRpcServer(c.server, rpc)
 	// 用于支持Consul的gRpc健康检查
-	pb.RegisterHealthServer(server, rpc)
-	// 更新状态
-	c.server = server
+	pb.RegisterHealthServer(c.server, rpc)
+
 	// 监听rpc端口
 	c.eventPool.Go(func() {
 		defer checkPanic()
-		err = server.Serve(listener)
+		err = c.server.Serve(listener)
 		fmt.Println("[Snow] GRpc Serve() err:", err)
 		ch <- os.Interrupt
 	})
@@ -247,9 +253,9 @@ func (c *Cluster) Find(name string) (*Node, error) {
 	}, nil
 }
 
-func (c *Cluster) find(name string, serviceName string, nodeName string) (*mount_processor.Node, error) {
+func (c *Cluster) find(name string, serviceName string, nodeName string) (*NodeInfo, error) {
 	if node, ok := c.findCache.Load(name); ok {
-		node := node.(*mount_processor.Node)
+		node := node.(*NodeInfo)
 		if node.CreateTime >= time.Now().Unix()-5 {
 			return node, nil
 		}
@@ -259,7 +265,7 @@ func (c *Cluster) find(name string, serviceName string, nodeName string) (*mount
 	defer c.findLock.Unlock()
 
 	if node, ok := c.findCache.Load(name); ok {
-		node := node.(*mount_processor.Node)
+		node := node.(*NodeInfo)
 		if node.CreateTime >= time.Now().Unix()-5 {
 			return node, nil
 		}
@@ -304,9 +310,9 @@ func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 	return list, nil
 }
 
-func (c *Cluster) findAll(serviceName string) (*mount_processor.Service, error) {
+func (c *Cluster) findAll(serviceName string) (*ServiceInfo, error) {
 	if node, ok := c.findAllCache.Load(serviceName); ok {
-		node := node.(*mount_processor.Service)
+		node := node.(*ServiceInfo)
 		if node.CreateTime >= time.Now().Unix()-5 {
 			return node, nil
 		}
@@ -316,7 +322,7 @@ func (c *Cluster) findAll(serviceName string) (*mount_processor.Service, error) 
 	defer c.findAllLock.Unlock()
 
 	if node, ok := c.findAllCache.Load(serviceName); ok {
-		node := node.(*mount_processor.Service)
+		node := node.(*ServiceInfo)
 		if node.CreateTime >= time.Now().Unix()-5 {
 			return node, nil
 		}

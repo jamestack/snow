@@ -1,35 +1,43 @@
-package mount_processor
+package snow
 
 import (
 	"errors"
+	"github.com/jamestack/snow/pb"
 	"sync"
 )
 
 // 本地挂载点处理器抽象
-type LocalProcessor struct {
+type ClusterProcessor struct {
 	sync.Mutex
-	storage map[string]*Service //
+	localProcessor *LocalProcessor
+	MasterAddr string
 }
 
-func (t *LocalProcessor) Init() error {
-	t.storage = make(map[string]*Service)
-	return nil
+func (t *ClusterProcessor) Init(cluster *Cluster) error {
+	pb.RegisterMasterRpcServer(cluster.GrpcServer(), &MasterRpc{
+		cluster:   cluster,
+		peerAddr:  "",
+		masterKey: 0,
+	})
+
+	t.localProcessor = &LocalProcessor{}
+	return t.localProcessor.Init(cluster)
 }
 
 // 挂载节点
-func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address string) error {
+func (t *ClusterProcessor) MountNode(serviceName string, nodeName string, address string) error {
 	t.Lock()
 	defer t.Unlock()
 
-	newNode := &Node{
+	newNode := &NodeInfo{
 		NodeName: nodeName,
 		Address:  address,
 	}
 	exService, ok := t.storage[serviceName]
 	if !ok {
-		t.storage[serviceName] = &Service{
+		t.storage[serviceName] = &ServiceInfo{
 			ServiceName: serviceName,
-			Nodes:       []*Node{newNode},
+			Nodes:       []*NodeInfo{newNode},
 		}
 		return nil
 	}
@@ -40,7 +48,7 @@ func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address 
 }
 
 // 移除挂载节点
-func (t *LocalProcessor) UnMountNode(serviceName string, nodeName string) error {
+func (t *ClusterProcessor) UnMountNode(serviceName string, nodeName string) error {
 	t.Lock()
 	defer t.Unlock()
 
@@ -60,7 +68,7 @@ func (t *LocalProcessor) UnMountNode(serviceName string, nodeName string) error 
 }
 
 // 查询单个节点
-func (t *LocalProcessor) Find(serviceName string, nodeName string) (*Node, error) {
+func (t *ClusterProcessor) Find(serviceName string, nodeName string) (*NodeInfo, error) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -79,7 +87,7 @@ func (t *LocalProcessor) Find(serviceName string, nodeName string) (*Node, error
 }
 
 // 查询所有节点
-func (t *LocalProcessor) FindAll(serviceName string) (*Service, error) {
+func (t *ClusterProcessor) FindAll(serviceName string) (*ServiceInfo, error) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -92,11 +100,11 @@ func (t *LocalProcessor) FindAll(serviceName string) (*Service, error) {
 }
 
 // 查询所有节点
-func (t *LocalProcessor) FindAllService() ([]*Service, error) {
+func (t *ClusterProcessor) FindAllService() ([]*ServiceInfo, error) {
 	t.Lock()
 	defer t.Unlock()
 
-	list := make([]*Service, len(t.storage))
+	list := make([]*ServiceInfo, len(t.storage))
 	i := 0
 	for _, item := range t.storage {
 		list[i] = item

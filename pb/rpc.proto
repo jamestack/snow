@@ -6,8 +6,8 @@ package pb;
 
 // master rpc
 service MasterRpc {
-    // 心跳
-    rpc Ping(Empty) returns(Empty);
+    // // 心跳
+    // rpc Ping(Empty) returns(Empty);
     // 注册
     rpc Register(RegisterReq) returns(RegisterAck);
     // 挂载节点
@@ -22,6 +22,7 @@ service MasterRpc {
 
 // peer rpc
 service PeerRpc {
+    rpc CheckNum(CheckNumReq) returns(Empty);
     // 远程调用
     rpc Call(CallReq) returns(CallAck);
     // 双向流抽象
@@ -38,6 +39,7 @@ message Empty {}
 message RegisterReq {
     string PeerNode = 1;
     int64 MasterKey = 2;
+    int64 CheckNum = 3;
 }
 
 message RegisterAck {
@@ -65,6 +67,9 @@ message SyncAck {
 }
 
 // ============= 远程调用 =============
+message CheckNumReq {
+    int64 num = 1;
+}
 
 message CallReq {
     string ServiceName = 1;

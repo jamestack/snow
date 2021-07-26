@@ -6,159 +6,192 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"github.com/jamestack/snow/pb"
 	"reflect"
 	"strings"
-
-	"github.com/jamestack/snow/pb"
 )
 
-//// ======================== 主节点 ===========================
-//type MasterRpc struct {
-//	peerAddr string
-//}
-//
-//// 心跳
-//func (m *MasterRpc)Ping(context.Context, *pb.Empty) (ack *pb.Empty,err error) {
-//	ack = emptyMsg
-//	if m.peerAddr == "" {
-//		err = errors.New("not register")
-//		return
-//	}
-//
-//	//root.iNode.(*rootNode).lastPing[m.peerAddr] = time.Now()
-//
-//	return
-//}
-//
-//// 注册
-//func (m *MasterRpc)Register(ctx context.Context, req *pb.RegisterReq) (ack *pb.RegisterAck, err error)  {
-//	ack = &pb.RegisterAck{
-//		MasterKey: 0,
-//	}
-//
-//	if m.peerAddr != "" && m.peerAddr != req.PeerNode {
-//		err = errors.New("is already register")
-//		return
-//	}
-//
-//	//root := root.iNode.(*rootNode)
-//	//
-//	//ack.MasterKey = root.masterKey
-//	//if req.MasterKey != 0 && req.MasterKey != root.masterKey {
-//	//	err = errors.New("register key is already expired")
-//	//	return
-//	//}
-//	//
-//	//m.peerAddr = req.PeerNode
-//	//root.lastPing[m.peerAddr] = time.Now()
-//
-//	return
-//}
-//
-//// 挂载节点
-//func (m *MasterRpc)Mount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty,err error) {
-//	ack = emptyMsg
-//	if m.peerAddr == "" {
-//		err = errors.New("not register")
-//		return
-//	}
-//
-//	//err = root.iNode.(*rootNode).addSyncLog(true, req.Name, true, m.peerAddr)
-//	return
-//}
-//// 移除节点
-//func (m *MasterRpc)UnMount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty,err error) {
-//	ack = emptyMsg
-//	if m.peerAddr == "" {
-//		err = errors.New("not register")
-//		return
-//	}
-//
-//	//err = root.iNode.(*rootNode).addSyncLog(true, req.Name, false, m.peerAddr)
-//	return
-//}
-//// 移除所有节点
-//func (m *MasterRpc)UnMountAll(ctx context.Context,req *pb.Empty) (ack *pb.Empty,err error) {
-//	ack = emptyMsg
-//	if m.peerAddr == "" {
-//		err = errors.New("not register")
-//		return
-//	}
-//	//
-//	//root.RangeChild(func(name string, node *Node) bool {
-//	//	if !node.IsLocal() && node.peerNode.peerAddr == m.peerAddr {
-//	//		_ = root.iNode.(*rootNode).addSyncLog(true, name, false, m.peerAddr)
-//	//	}
-//	//	return true
-//	//})
-//
-//	return
-//}
+// ======================== 主节点 ===========================
+type MasterRpc struct {
+	cluster  *Cluster
+	peerAddr string
+	masterKey int64
+}
+
+var emptyMsg = &pb.Empty{}
+
+// 心跳
+// func (m *MasterRpc) Ping(context.Context, *pb.Empty) (ack *pb.Empty, err error) {
+// 	ack = emptyMsg
+// 	if m.peerAddr == "" {
+// 		err = errors.New("not register")
+// 		return
+// 	}
+
+// 	//root.iNode.(*rootNode).lastPing[m.peerAddr] = time.Now()
+
+// 	return
+// }
+
+// 注册
+func (m *MasterRpc) Register(ctx context.Context, req *pb.RegisterReq) (ack *pb.RegisterAck, err error) {
+	ack = &pb.RegisterAck{
+		MasterKey: 0,
+	}
+
+	if m.peerAddr != "" && m.peerAddr != req.PeerNode {
+		err = errors.New("is already register")
+		return
+	}
+
+	ack.MasterKey = m.masterKey
+	if req.MasterKey != 0 && req.MasterKey != m.masterKey {
+		err = errors.New("register key is already expired")
+		return
+	}
+
+	if req.CheckNum == 0 {
+		err = errors.New("CkeckNum is empty zero")
+		return
+	}
+
+	client, err := m.cluster.getRpcClient(req.PeerNode)
+	if err != nil {
+		err = errors.New("this rpc not allow dial")
+		return
+	}
+
+	_, err = client.CheckNum(ctx, &pb.CheckNumReq{
+		Num: req.CheckNum,
+	})
+	if err != nil {
+		err = errors.New("CheckNum fail")
+		return
+	}
+
+
+	return
+}
+
+// 挂载节点
+func (m *MasterRpc) Mount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty, err error) {
+	ack = emptyMsg
+	if m.peerAddr == "" {
+		err = errors.New("not register")
+		return
+	}
+
+	//err = root.iNode.(*rootNode).addSyncLog(true, req.Name, true, m.peerAddr)
+	return
+}
+
+// 移除节点
+func (m *MasterRpc) UnMount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty, err error) {
+	ack = emptyMsg
+	if m.peerAddr == "" {
+		err = errors.New("not register")
+		return
+	}
+
+	//err = root.iNode.(*rootNode).addSyncLog(true, req.Name, false, m.peerAddr)
+	return
+}
+
+// 移除所有节点
+func (m *MasterRpc) UnMountAll(ctx context.Context, req *pb.Empty) (ack *pb.Empty, err error) {
+	ack = emptyMsg
+	if m.peerAddr == "" {
+		err = errors.New("not register")
+		return
+	}
+	//
+	//root.RangeChild(func(name string, node *Node) bool {
+	//	if !node.IsLocal() && node.peerNode.peerAddr == m.peerAddr {
+	//		_ = root.iNode.(*rootNode).addSyncLog(true, name, false, m.peerAddr)
+	//	}
+	//	return true
+	//})
+
+	return
+}
+
 // 同步挂载点
-//func (m *MasterRpc)Sync(req *pb.SyncReq, stream pb.MasterRpc_SyncServer) (err error) {
-//	lastIndex := 0
-//	for {
-//		logs := root.iNode.(*rootNode).syncLogs
-//		length := len(logs)
-//		var list []*SyncLog
-//		if length-lastIndex > 0 {
-//			list = make([]*SyncLog, length-lastIndex)
-//			copy(list, logs[lastIndex:length])
-//			lastIndex = length
-//		}
-//
-//		// 去除重复
-//		for i:=0;i<len(list)-1;i++ {
-//			li := (list)[i]
-//			if li == nil {
-//				continue
-//			}
-//			if li.Id <= req.Id {
-//				continue
-//			}
-//			if li.IsAdd == true {
-//				for j:=1;j<len(list);j++ {
-//					lj := (list)[j]
-//					if lj == nil {
-//						continue
-//					}
-//					if lj.Name == li.Name && lj.IsAdd == false {
-//						(list)[i] = nil
-//						(list)[j] = nil
-//						break
-//					}
-//				}
-//			}
-//		}
-//
-//		// Send
-//		for _, item := range list {
-//			if item == nil {
-//				continue
-//			}
-//			if item.Id <= req.Id {
-//				continue
-//			}
-//			err = stream.Send(&pb.MountLogItem{
-//				Id:                   item.Id,
-//				IsAdd:                item.IsAdd,
-//				Name:                 item.Name,
-//				PeerAddr:             item.PeerAddr,
-//			})
-//			if err != nil {
-//				return err
-//			}
-//		}
-//
-//		// 检测更新的频率为100毫秒
-//		<-time.After(100 * time.Millisecond)
-//	}
-//
-//}
+func (m *MasterRpc) Sync(req *pb.SyncReq, stream pb.MasterRpc_SyncServer) (err error) {
+	//lastIndex := 0
+	//for {
+	//	logs := root.iNode.(*rootNode).syncLogs
+	//	length := len(logs)
+	//	var list []*SyncLog
+	//	if length-lastIndex > 0 {
+	//		list = make([]*SyncLog, length-lastIndex)
+	//		copy(list, logs[lastIndex:length])
+	//		lastIndex = length
+	//	}
+	//
+	//	// 去除重复
+	//	for i := 0; i < len(list)-1; i++ {
+	//		li := (list)[i]
+	//		if li == nil {
+	//			continue
+	//		}
+	//		if li.Id <= req.Id {
+	//			continue
+	//		}
+	//		if li.IsAdd == true {
+	//			for j := 1; j < len(list); j++ {
+	//				lj := (list)[j]
+	//				if lj == nil {
+	//					continue
+	//				}
+	//				if lj.Name == li.Name && lj.IsAdd == false {
+	//					(list)[i] = nil
+	//					(list)[j] = nil
+	//					break
+	//				}
+	//			}
+	//		}
+	//	}
+	//
+	//	// Send
+	//	for _, item := range list {
+	//		if item == nil {
+	//			continue
+	//		}
+	//		if item.Id <= req.Id {
+	//			continue
+	//		}
+	//		err = stream.Send(&pb.MountLogItem{
+	//			Id:       item.Id,
+	//			IsAdd:    item.IsAdd,
+	//			Name:     item.Name,
+	//			PeerAddr: item.PeerAddr,
+	//		})
+	//		if err != nil {
+	//			return err
+	//		}
+	//	}
+	//
+	//	// 检测更新的频率为100毫秒
+	//	<-time.After(100 * time.Millisecond)
+	//}
+
+	return nil
+}
 
 // ============================ 子节点 ===========================
 type PeerRpc struct {
-	cluster *Cluster
+	cluster  *Cluster
+	checkNum int64
+}
+
+func (p *PeerRpc) CheckNum(ctx context.Context, req *pb.CheckNumReq) (ack *pb.Empty, err error) {
+	ack = &pb.Empty{}
+	if req.Num != p.checkNum {
+		err = errors.New("checknum not valid")
+		return
+	}
+
+	return
 }
 
 // 远程调用
