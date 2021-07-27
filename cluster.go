@@ -40,6 +40,8 @@ type Cluster struct {
 	// gRpc连接池
 	gRpcClients sync.Map // map[string]*ring.Ring
 	server      *grpc.Server
+	// 唯一验证字符串
+	key string
 }
 
 // 初始化连接
@@ -86,16 +88,21 @@ func (c *Cluster) getRpcClient(addr string) (client pb.PeerRpcClient, err error)
 	return client, nil
 }
 
+func (c *Cluster) ClusterKey() string {
+	return c.key
+}
+
 // 初始化集群
 // @listenAddr  rpc监听地址
 // &peerAddr    rpc对外访问的地址
-func NewCluster(listenAddr string, peerAddr string, mountProcessor IMountProcessor) *Cluster {
+func NewClusterWithMountProcessor(listenAddr string, peerAddr string, mountProcessor IMountProcessor) *Cluster {
 	c := &Cluster{
 		mountProcessor: mountProcessor,
 		listenAddr:     listenAddr,
 		peerAddr:       peerAddr,
 		eventPool:      NewGoPool(uint32(runtime.NumCPU()) * 4),
 		server: grpc.NewServer(),
+		key: RandStr(24),
 	}
 
 	if mountProcessor == nil {
@@ -112,7 +119,7 @@ func (c *Cluster) GetPeerAddr() string {
 // 本地集群
 func NewClusterWithLocal() *Cluster {
 	mountProcessor := &LocalProcessor{}
-	return NewCluster("", "", mountProcessor)
+	return NewClusterWithMountProcessor("", "", mountProcessor)
 }
 
 // 支持Consul挂载点的集群
@@ -123,7 +130,17 @@ func NewClusterWithConsul(listenAddr string, peerAddr string, client ...*api.Cli
 	if len(client) != 0 {
 		mountProcessor.Client = client[0]
 	}
-	return NewCluster(listenAddr, peerAddr, mountProcessor)
+	return NewClusterWithMountProcessor(listenAddr, peerAddr, mountProcessor)
+}
+
+func NewClusterMaster(listenAddr string, peerAddr string) *Cluster {
+	return NewClusterWithMountProcessor(listenAddr, peerAddr, &ClusterMountProcessorMaster{})
+}
+
+func NewClusterSlave(listenAddr string, peerAddr string, masterAddr string) *Cluster {
+	return NewClusterWithMountProcessor(listenAddr, peerAddr, &ClusterMountProcessorSlave{
+		MasterAddr:     masterAddr,
+	})
 }
 
 func (c *Cluster) GrpcServer() *grpc.Server {
@@ -134,11 +151,7 @@ func (c *Cluster) GrpcServer() *grpc.Server {
 func (c *Cluster) Serve() (done chan os.Signal, err error) {
 	ch := make(chan os.Signal)
 	done = make(chan os.Signal)
-	// 初始化挂载点处理器
-	err = c.mountProcessor.Init(c)
-	if err != nil {
-		return nil, err
-	}
+
 	// 执行异步任务
 	c.eventPool.Go(func() {
 		defer checkPanic()
@@ -210,6 +223,13 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 		fmt.Println("[Snow] GRpc Serve() err:", err)
 		ch <- os.Interrupt
 	})
+
+	// 初始化挂载点处理器
+	err = c.mountProcessor.Init(c)
+	if err != nil {
+		_ = listener.Close()
+		return done, err
+	}
 
 	fmt.Println("[Snow] Cluster Serve Success")
 	return done, nil

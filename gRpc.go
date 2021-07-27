@@ -7,51 +7,82 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jamestack/snow/pb"
+	"google.golang.org/grpc/metadata"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 // ======================== 主节点 ===========================
 type MasterRpc struct {
 	cluster  *Cluster
-	peerAddr string
-	masterKey int64
+	mountMaster *ClusterMountProcessorMaster
+	session sync.Map
+}
+
+type session struct {
+	PeerAddr string
+}
+
+func (m *MasterRpc) getSession(ctx context.Context) *session {
+	md,ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil
+	}
+
+	ids := md.Get("session_id")
+	if len(ids) == 0 {
+		return nil
+	}
+
+	exSession,ok := m.session.Load(ids[0])
+	if !ok {
+		sess := &session{}
+		m.session.Store(ids[0], sess)
+		return sess
+	}
+	return exSession.(*session)
 }
 
 var emptyMsg = &pb.Empty{}
 
 // 心跳
-// func (m *MasterRpc) Ping(context.Context, *pb.Empty) (ack *pb.Empty, err error) {
-// 	ack = emptyMsg
-// 	if m.peerAddr == "" {
-// 		err = errors.New("not register")
-// 		return
-// 	}
+func (m *MasterRpc) Ping(ctx context.Context,req *pb.Empty) (ack *pb.Empty, err error) {
+	ack = emptyMsg
+	sess := m.getSession(ctx)
+	if sess == nil {
+		return ack, errors.New("session_id not found")
+	}
 
-// 	//root.iNode.(*rootNode).lastPing[m.peerAddr] = time.Now()
+	//root.iNode.(*rootNode).lastPing[m.peerAddr] = time.Now()
 
-// 	return
-// }
+	return
+}
 
 // 注册
 func (m *MasterRpc) Register(ctx context.Context, req *pb.RegisterReq) (ack *pb.RegisterAck, err error) {
 	ack = &pb.RegisterAck{
-		MasterKey: 0,
+		MasterKey: m.cluster.key,
 	}
 
-	if m.peerAddr != "" && m.peerAddr != req.PeerNode {
-		err = errors.New("is already register")
+	sess := m.getSession(ctx)
+	if sess == nil {
+		err = errors.New("session_id not found")
 		return
 	}
 
-	ack.MasterKey = m.masterKey
-	if req.MasterKey != 0 && req.MasterKey != m.masterKey {
+	if sess.PeerAddr != "" {
+		err = errors.New("already register")
+		return
+	}
+
+	if req.MasterKey != "" && req.MasterKey != m.cluster.ClusterKey() {
 		err = errors.New("register key is already expired")
 		return
 	}
 
-	if req.CheckNum == 0 {
-		err = errors.New("CkeckNum is empty zero")
+	if req.SlaveKey == "" {
+		err = errors.New("SlaveKey is empty")
 		return
 	}
 
@@ -61,14 +92,15 @@ func (m *MasterRpc) Register(ctx context.Context, req *pb.RegisterReq) (ack *pb.
 		return
 	}
 
-	_, err = client.CheckNum(ctx, &pb.CheckNumReq{
-		Num: req.CheckNum,
+	_, err = client.CheckKey(ctx, &pb.CheckKeyReq{
+		Key: req.SlaveKey,
 	})
 	if err != nil {
 		err = errors.New("CheckNum fail")
 		return
 	}
 
+	sess.PeerAddr = req.PeerNode
 
 	return
 }
@@ -76,104 +108,63 @@ func (m *MasterRpc) Register(ctx context.Context, req *pb.RegisterReq) (ack *pb.
 // 挂载节点
 func (m *MasterRpc) Mount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty, err error) {
 	ack = emptyMsg
-	if m.peerAddr == "" {
+	sess := m.getSession(ctx)
+	if sess == nil {
+		err = errors.New("session_id not found")
+		return
+	}
+
+	if sess.PeerAddr == "" {
 		err = errors.New("not register")
 		return
 	}
 
-	//err = root.iNode.(*rootNode).addSyncLog(true, req.Name, true, m.peerAddr)
+	ns := strings.Split(req.Name, "/")
+	if len(ns) != 2 {
+		err = errors.New("name not valid")
+		return
+	}
+
+	// 处理器处理
+	err = m.mountMaster.MountNode(ns[0], ns[1], sess.PeerAddr)
+
 	return
 }
 
 // 移除节点
 func (m *MasterRpc) UnMount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty, err error) {
 	ack = emptyMsg
-	if m.peerAddr == "" {
+	sess := m.getSession(ctx)
+	if sess == nil {
+		err = errors.New("session_id not found")
+		return
+	}
+
+	if sess.PeerAddr == "" {
 		err = errors.New("not register")
 		return
 	}
 
-	//err = root.iNode.(*rootNode).addSyncLog(true, req.Name, false, m.peerAddr)
-	return
-}
-
-// 移除所有节点
-func (m *MasterRpc) UnMountAll(ctx context.Context, req *pb.Empty) (ack *pb.Empty, err error) {
-	ack = emptyMsg
-	if m.peerAddr == "" {
-		err = errors.New("not register")
+	ns := strings.Split(req.Name, "/")
+	if len(ns) != 2 {
+		err = errors.New("name not valid")
 		return
 	}
-	//
-	//root.RangeChild(func(name string, node *Node) bool {
-	//	if !node.IsLocal() && node.peerNode.peerAddr == m.peerAddr {
-	//		_ = root.iNode.(*rootNode).addSyncLog(true, name, false, m.peerAddr)
-	//	}
-	//	return true
-	//})
+
+	// 处理器处理
+	err = m.mountMaster.UnMountNode(ns[0], ns[1])
 
 	return
 }
 
 // 同步挂载点
 func (m *MasterRpc) Sync(req *pb.SyncReq, stream pb.MasterRpc_SyncServer) (err error) {
-	//lastIndex := 0
-	//for {
-	//	logs := root.iNode.(*rootNode).syncLogs
-	//	length := len(logs)
-	//	var list []*SyncLog
-	//	if length-lastIndex > 0 {
-	//		list = make([]*SyncLog, length-lastIndex)
-	//		copy(list, logs[lastIndex:length])
-	//		lastIndex = length
-	//	}
-	//
-	//	// 去除重复
-	//	for i := 0; i < len(list)-1; i++ {
-	//		li := (list)[i]
-	//		if li == nil {
-	//			continue
-	//		}
-	//		if li.Id <= req.Id {
-	//			continue
-	//		}
-	//		if li.IsAdd == true {
-	//			for j := 1; j < len(list); j++ {
-	//				lj := (list)[j]
-	//				if lj == nil {
-	//					continue
-	//				}
-	//				if lj.Name == li.Name && lj.IsAdd == false {
-	//					(list)[i] = nil
-	//					(list)[j] = nil
-	//					break
-	//				}
-	//			}
-	//		}
-	//	}
-	//
-	//	// Send
-	//	for _, item := range list {
-	//		if item == nil {
-	//			continue
-	//		}
-	//		if item.Id <= req.Id {
-	//			continue
-	//		}
-	//		err = stream.Send(&pb.MountLogItem{
-	//			Id:       item.Id,
-	//			IsAdd:    item.IsAdd,
-	//			Name:     item.Name,
-	//			PeerAddr: item.PeerAddr,
-	//		})
-	//		if err != nil {
-	//			return err
-	//		}
-	//	}
-	//
-	//	// 检测更新的频率为100毫秒
-	//	<-time.After(100 * time.Millisecond)
-	//}
+	done,err := m.mountMaster.syncLog.Sync(req.Id, stream)
+	if err != nil {
+		return err
+	}
+
+	<-done
 
 	return nil
 }
@@ -184,10 +175,10 @@ type PeerRpc struct {
 	checkNum int64
 }
 
-func (p *PeerRpc) CheckNum(ctx context.Context, req *pb.CheckNumReq) (ack *pb.Empty, err error) {
+func (p *PeerRpc) CheckKey(ctx context.Context, req *pb.CheckKeyReq) (ack *pb.Empty, err error) {
 	ack = &pb.Empty{}
-	if req.Num != p.checkNum {
-		err = errors.New("checknum not valid")
+	if req.Key != p.cluster.key {
+		err = errors.New("checkkey not valid")
 		return
 	}
 

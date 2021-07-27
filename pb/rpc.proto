@@ -14,15 +14,13 @@ service MasterRpc {
     rpc Mount(MountReq) returns(Empty);
     // 移除节点
     rpc UnMount(MountReq) returns(Empty);
-    // 移除所有节点
-    rpc UnMountAll(Empty) returns(Empty);
     // 同步挂载点
     rpc Sync(SyncReq) returns(stream MountLogItem);
 }
 
 // peer rpc
 service PeerRpc {
-    rpc CheckNum(CheckNumReq) returns(Empty);
+    rpc CheckKey(CheckKeyReq) returns(Empty);
     // 远程调用
     rpc Call(CallReq) returns(CallAck);
     // 双向流抽象
@@ -38,12 +36,12 @@ message Empty {}
 // ============= 注册节点 ============
 message RegisterReq {
     string PeerNode = 1;
-    int64 MasterKey = 2;
-    int64 CheckNum = 3;
+    string SlaveKey = 2;
+    string MasterKey = 3;
 }
 
 message RegisterAck {
-    int64 MasterKey = 1;
+    string MasterKey = 1;
 }
 
 // ============= 挂载 ==============
@@ -67,8 +65,8 @@ message SyncAck {
 }
 
 // ============= 远程调用 =============
-message CheckNumReq {
-    int64 num = 1;
+message CheckKeyReq {
+    string key = 1;
 }
 
 message CallReq {

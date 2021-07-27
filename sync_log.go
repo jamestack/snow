@@ -1,31 +1,25 @@
 package snow
 
 import (
+	"github.com/jamestack/snow/pb"
 	"sync"
 )
-
-type SyncLogItem struct {
-	Id          int64
-	ServiceName string
-	NodeName    string
-	NodeAddr    string
-	IsMount     bool
-}
 
 type SyncLog struct {
 	id    int64
 	lock  sync.Mutex
-	list  []*SyncLogItem
-	subCh map[chan *SyncLogItem]int64
+	list  []*pb.MountLogItem
+	subCh map[pb.MasterRpc_SyncServer]chan bool
 }
 
 func NewSyncLog() *SyncLog {
 	return &SyncLog{
-		list: make([]*SyncLogItem, 0),
+		list: make([]*pb.MountLogItem, 0),
+		subCh: make(map[pb.MasterRpc_SyncServer]chan bool),
 	}
 }
 
-func (s *SyncLog) AddLog(item *SyncLogItem) {
+func (s *SyncLog) AddLog(item *pb.MountLogItem) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -33,22 +27,43 @@ func (s *SyncLog) AddLog(item *SyncLogItem) {
 
 	item.Id = s.id
 
+	if !item.IsAdd {
+		for i,v := range s.list {
+			if v.Name == item.Name && v.IsAdd {
+				s.list = append(s.list[:i], s.list[i+1:]...)
+				break
+			}
+		}
+	}
+
 	s.list = append(s.list, item)
 
 	for ch := range s.subCh {
-		ch <- item
+		err := ch.Send(item)
+		if err != nil {
+			s.subCh[ch] <- true
+			delete(s.subCh, ch)
+		}
 	}
 }
 
-func (s *SyncLog) Sync(id int64, ch chan *SyncLogItem) {
+func (s *SyncLog) Sync(id int64, ch pb.MasterRpc_SyncServer) (done chan bool, err error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	list := s.list[id:]
-	for _, item := range list {
-		id += 1
-		ch <- item
+	for _, item := range s.list {
+		if item.Id > id {
+			err = ch.Send(item)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	s.subCh[ch] = id
+	_ = ch.Send(&pb.MountLogItem{
+		Id:                   -100,
+	})
+
+	s.subCh[ch] = make(chan bool)
+	return s.subCh[ch], nil
 }
