@@ -28,9 +28,6 @@ type Cluster struct {
 	eventPool   *GoPool
 	// 挂载点处理器
 	mountProcessor IMountProcessor
-	// 挂载点缓存
-	findCache    sync.Map // map[string]*mount_processor.Node
-	findAllCache sync.Map // map[string]*mount_processor.Service
 	// 本地挂载点
 	localNodes sync.Map // map[string]interface{}
 	// 监听地址
@@ -259,7 +256,7 @@ func (c *Cluster) Find(name string) (*Node, error) {
 	}
 
 	// 远程节点
-	node, err := c.find(name, serviceName, nodeName)
+	node, err := c.mountProcessor.Find(serviceName, nodeName)
 	if err != nil {
 		return nil, err
 	}
@@ -273,36 +270,10 @@ func (c *Cluster) Find(name string) (*Node, error) {
 	}, nil
 }
 
-func (c *Cluster) find(name string, serviceName string, nodeName string) (*NodeInfo, error) {
-	if node, ok := c.findCache.Load(name); ok {
-		node := node.(*NodeInfo)
-		if node.CreateTime >= time.Now().Unix()-5 {
-			return node, nil
-		}
-	}
-
-	c.findLock.Lock()
-	defer c.findLock.Unlock()
-
-	if node, ok := c.findCache.Load(name); ok {
-		node := node.(*NodeInfo)
-		if node.CreateTime >= time.Now().Unix()-5 {
-			return node, nil
-		}
-	}
-
-	res, err := c.mountProcessor.Find(serviceName, nodeName)
-	if err == nil {
-		res.CreateTime = time.Now().Unix()
-		c.findCache.Store(name, res)
-	}
-	return res, err
-}
-
 // 查询节点列表
 func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 	// 远程节点
-	service, err := c.findAll(serviceName)
+	service, err := c.mountProcessor.FindAll(serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -328,33 +299,6 @@ func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 	}
 
 	return list, nil
-}
-
-func (c *Cluster) findAll(serviceName string) (*ServiceInfo, error) {
-	if node, ok := c.findAllCache.Load(serviceName); ok {
-		node := node.(*ServiceInfo)
-		if node.CreateTime >= time.Now().Unix()-5 {
-			return node, nil
-		}
-	}
-
-	c.findAllLock.Lock()
-	defer c.findAllLock.Unlock()
-
-	if node, ok := c.findAllCache.Load(serviceName); ok {
-		node := node.(*ServiceInfo)
-		if node.CreateTime >= time.Now().Unix()-5 {
-			return node, nil
-		}
-	}
-
-	res, err := c.mountProcessor.FindAll(serviceName)
-	if err == nil {
-		res.CreateTime = time.Now().Unix()
-		c.findAllCache.Store(serviceName, res)
-	}
-
-	return res, err
 }
 
 // 查询所有本机节点

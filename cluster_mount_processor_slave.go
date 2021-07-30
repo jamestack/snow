@@ -7,7 +7,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"strings"
-	"time"
 )
 
 // 本地挂载点处理器抽象
@@ -16,6 +15,7 @@ type ClusterMountProcessorSlave struct {
 	MasterAddr string
 	rpcClient pb.MasterRpcClient
 	masterKey string
+	ctx context.Context
 }
 
 func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
@@ -25,7 +25,7 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 		return err
 	}
 
-	ctx, _ := context.WithTimeout(context.TODO(), 5*time.Second)
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "session_id", RandStr(24))
 	conn, err := grpc.DialContext(ctx, s.MasterAddr, grpc.WithInsecure())
 	if err != nil {
 		return err
@@ -33,7 +33,7 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 
 	masterRpc := pb.NewMasterRpcClient(conn)
 
-	ack,err := masterRpc.Register(metadata.AppendToOutgoingContext(ctx, "session_id", RandStr(24)), &pb.RegisterReq{
+	ack,err := masterRpc.Register(ctx, &pb.RegisterReq{
 		PeerNode:  cluster.GetPeerAddr(),
 		SlaveKey: cluster.ClusterKey(),
 		MasterKey: s.masterKey,
@@ -43,7 +43,10 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 		return err
 	}
 
-	syncStream,err := masterRpc.Sync(context.Background(), &pb.SyncReq{
+	s.ctx = ctx
+	s.rpcClient = masterRpc
+
+	syncStream,err := s.rpcClient.Sync(ctx, &pb.SyncReq{
 		Id: 0,
 	})
 	if err != nil {
@@ -68,9 +71,9 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 
 			ns := strings.Split(item.Name, "/")
 			if item.IsAdd {
-				s.localProcessor.MountNode(ns[0], ns[1], item.PeerAddr)
+				_ = s.localProcessor.MountNode(ns[0], ns[1], item.PeerAddr)
 			}else {
-				s.localProcessor.UnMountNode(ns[0], ns[1])
+				_ = s.localProcessor.UnMountNode(ns[0], ns[1])
 			}
 
 		}
@@ -85,7 +88,7 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 
 // 挂载节点
 func (s *ClusterMountProcessorSlave) MountNode(serviceName string, nodeName string, address string) (err error) {
-	_,err = s.rpcClient.Mount(context.Background(), &pb.MountReq{
+	_,err = s.rpcClient.Mount(s.ctx, &pb.MountReq{
 		Name: serviceName+"/"+nodeName,
 	})
 	return
@@ -93,7 +96,7 @@ func (s *ClusterMountProcessorSlave) MountNode(serviceName string, nodeName stri
 
 // 移除挂载节点
 func (s *ClusterMountProcessorSlave) UnMountNode(serviceName string, nodeName string) (err error) {
-	_,err = s.rpcClient.Mount(context.Background(), &pb.MountReq{
+	_,err = s.rpcClient.UnMount(s.ctx, &pb.MountReq{
 		Name: serviceName+"/"+nodeName,
 	})
 	return

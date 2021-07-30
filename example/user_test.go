@@ -3,7 +3,6 @@ package example
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/jamestack/snow"
@@ -27,21 +26,21 @@ func (u *User) TestErr(req error) (string, error) {
 }
 
 // 自定义消息处理器，模拟全局消息总线
-func (u *User) OnCall(name string, call func([]reflect.Value) []reflect.Value, args []reflect.Value) []reflect.Value {
-	var res []reflect.Value
-	ch := make(chan bool)
-
-	// 丢到全局消息总线中去执行
-	GlobalProcessor.Go(func() {
-		fmt.Println("Call", name, "Start")
-		res = call(args)
-		fmt.Println("Call", name, "End")
-		ch <- true
-	})
-
-	<-ch
-	return res
-}
+//func (u *User) OnCall(name string, call func([]reflect.Value) []reflect.Value, args []reflect.Value) []reflect.Value {
+//	var res []reflect.Value
+//	ch := make(chan bool)
+//
+//	// 丢到全局消息总线中去执行
+//	GlobalProcessor.Go(func() {
+//		fmt.Println("Call", name, "Start")
+//		res = call(args)
+//		fmt.Println("Call", name, "End")
+//		ch <- true
+//	})
+//
+//	<-ch
+//	return res
+//}
 
 // 挂载回调
 func (u *User) OnMount() {

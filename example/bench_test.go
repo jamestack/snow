@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -24,7 +25,7 @@ func init() {
 }
 
 func TestBenchNodeA(t *testing.T) {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8000", "127.0.0.1:8000")
+	cluster := snow.NewClusterMaster("127.0.0.1:8000", "127.0.0.1:8000")
 	done, err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
@@ -39,15 +40,12 @@ func TestBenchNodeA(t *testing.T) {
 }
 
 func TestBenchNodeB(t *testing.T) {
-	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
-	done, err := cluster.Serve()
+	cluster := snow.NewClusterSlave("127.0.0.1:8001", "127.0.0.1:8001", "127.0.0.1:8000")
+	_, err := cluster.Serve()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	defer func() {
-		<-done
-	}()
 
 	jacks, err := cluster.Mount("jacks", &User{name: "jacks"})
 	if err != nil {
@@ -82,6 +80,27 @@ func TestBenchNodeB(t *testing.T) {
 	})
 	fmt.Println(err)
 
+	pool := snow.NewGoPool(uint32(runtime.NumCPU()) * 4)
+	// 远程异步调用
+	var wg sync.WaitGroup
+	log.Println("async rpc start")
+	for i := 0; i < MAX_ROUND; i++ {
+		name := fmt.Sprintf("section-%d", i+1)
+		wg.Add(1)
+		pool.Go(func() {
+			err = james.Call("Play", name, func(name string) {
+				//fmt.Println("play done", name)
+			})
+			wg.Done()
+			if err != nil {
+				fmt.Println("end", err)
+			}
+		})
+	}
+	wg.Wait()
+	log.Println("async rpc end")
+	log.Println()
+
 	// 远程调用
 	log.Println("rpc start")
 	for i := 0; i < MAX_ROUND; i++ {
@@ -96,25 +115,6 @@ func TestBenchNodeB(t *testing.T) {
 	}
 	log.Println("rpc end")
 	log.Println()
-
-	// 远程异步调用
-	var wg sync.WaitGroup
-	log.Println("async rpc start")
-	for i := 0; i < MAX_ROUND; i++ {
-		name := fmt.Sprintf("section-%d", i+1)
-		wg.Add(1)
-		go func() {
-			err = james.Call("Play", name, func(name string) {
-				//fmt.Println("play done", name)
-			})
-			wg.Done()
-			if err != nil {
-				fmt.Println("end", err)
-			}
-		}()
-	}
-	wg.Wait()
-	log.Println("async rpc end")
 
 	//<-time.After(30*time.Second)
 }
