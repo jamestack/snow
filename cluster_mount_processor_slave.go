@@ -71,7 +71,7 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 
 			ns := strings.Split(item.Name, "/")
 			if item.IsAdd {
-				_ = s.localProcessor.MountNode(ns[0], ns[1], item.PeerAddr)
+				_ = s.localProcessor.MountNode(ns[0], ns[1], item.PeerAddr, item.Time)
 			}else {
 				_ = s.localProcessor.UnMountNode(ns[0], ns[1])
 			}
@@ -87,7 +87,7 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 }
 
 // 挂载节点
-func (s *ClusterMountProcessorSlave) MountNode(serviceName string, nodeName string, address string) (err error) {
+func (s *ClusterMountProcessorSlave) MountNode(serviceName string, nodeName string, address string, createTime int64) (err error) {
 	_,err = s.rpcClient.Mount(s.ctx, &pb.MountReq{
 		Name: serviceName+"/"+nodeName,
 	})

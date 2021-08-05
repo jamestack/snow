@@ -2,6 +2,7 @@ package snow
 
 import (
 	"github.com/jamestack/snow/pb"
+	"time"
 )
 
 // 本地挂载点处理器抽象
@@ -23,8 +24,8 @@ func (m *ClusterMountProcessorMaster) Init(cluster *Cluster) error {
 }
 
 // 挂载节点
-func (m *ClusterMountProcessorMaster) MountNode(serviceName string, nodeName string, address string) (err error) {
-	err = m.localProcessor.MountNode(serviceName, nodeName, address)
+func (m *ClusterMountProcessorMaster) MountNode(serviceName string, nodeName string, address string, createTime int64) (err error) {
+	err = m.localProcessor.MountNode(serviceName, nodeName, address, createTime)
 	if err != nil {
 		return
 	}
@@ -33,6 +34,7 @@ func (m *ClusterMountProcessorMaster) MountNode(serviceName string, nodeName str
 		IsAdd:                true,
 		Name:                 serviceName + "/" + nodeName,
 		PeerAddr:             address,
+		Time:                 createTime,
 	})
 	return
 }
@@ -48,6 +50,7 @@ func (m *ClusterMountProcessorMaster) UnMountNode(serviceName string, nodeName s
 		IsAdd:                false,
 		Name:                 serviceName + "/" + nodeName,
 		PeerAddr:             "",
+		Time:                 time.Now().Unix(),
 	})
 	return
 }

@@ -19,13 +19,14 @@ func (t *LocalProcessor) Init(cluster *Cluster) error {
 }
 
 // 挂载节点
-func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address string) error {
+func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address string, createTime int64) error {
 	t.Lock()
 	defer t.Unlock()
 
 	newNode := &NodeInfo{
 		NodeName: nodeName,
 		Address:  address,
+		CreateTime: createTime,
 	}
 	exService, ok := t.storage[serviceName]
 	if !ok {
@@ -34,6 +35,12 @@ func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address 
 			Nodes:       []*NodeInfo{newNode},
 		}
 		return nil
+	}
+
+	for _,item := range exService.Nodes {
+		if item.NodeName == nodeName {
+			return errors.New("already mounted")
+		}
 	}
 
 	exService.Nodes = append(exService.Nodes, newNode)

@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ======================== 主节点 ===========================
@@ -126,7 +127,7 @@ func (m *MasterRpc) Mount(ctx context.Context, req *pb.MountReq) (ack *pb.Empty,
 	}
 
 	// 处理器处理
-	err = m.mountMaster.MountNode(ns[0], ns[1], sess.PeerAddr)
+	err = m.mountMaster.MountNode(ns[0], ns[1], sess.PeerAddr, time.Now().Unix())
 
 	return
 }
@@ -508,32 +509,6 @@ func (p *PeerRpc) Check(ctx context.Context, req *pb.HealthCheckRequest) (*pb.He
 func (p *PeerRpc) Watch(req *pb.HealthCheckRequest, watcher pb.Health_WatchServer) error {
 	//fmt.Println("watch", req.Service)
 	return nil
-}
-
-func (p *PeerRpc) MountTime(ctx context.Context, req *pb.NodeName) (ack *pb.MountTimeAck, err error) {
-	ack = &pb.MountTimeAck{}
-	defer func() {
-		errPanic := recover()
-		if errPanic != nil {
-			printStack(errPanic)
-			err = fmt.Errorf("PeerRpc.MountTime() panic: %v", errPanic)
-		}
-	}()
-
-	node, err := p.cluster.Find(req.Str)
-	if err != nil {
-		err = errors.New("node not found: " + err.Error())
-		return
-	}
-
-	if !node.IsLocal() {
-		err = errors.New("not found node")
-		return
-	}
-
-	ack.Unix = node.mTime
-	err = nil
-	return
 }
 
 func (p *PeerRpc) UnMount(ctx context.Context, req *pb.NodeName) (ack *pb.Empty, err error) {

@@ -57,23 +57,8 @@ func (i *Node) Name() string {
 }
 
 // 挂载时间
-func (i *Node) MountTime() (int64, error) {
-	if i.IsLocal() {
-		return i.mTime, nil
-	} else {
-		var rpc pb.PeerRpcClient
-		rpc, err := i.Cluster.getRpcClient(i.addr)
-		if err != nil {
-			return 0, err
-		}
-		res, err := rpc.MountTime(context.TODO(), &pb.NodeName{
-			Str: i.serviceName + "/" + i.nodeName,
-		})
-		if err != nil {
-			return 0, err
-		}
-		return res.Unix, nil
-	}
+func (i *Node) MountTime() int64 {
+	return i.mTime
 }
 
 // 取消挂载

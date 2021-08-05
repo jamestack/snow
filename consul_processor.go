@@ -2,6 +2,8 @@ package snow
 
 import (
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -24,12 +26,15 @@ func (t *ConsulProcessor) Init(cluster *Cluster) (err error) {
 }
 
 // 挂载节点
-func (t *ConsulProcessor) MountNode(serviceName string, nodeName string, address string) error {
+func (t *ConsulProcessor) MountNode(serviceName string, nodeName string, address string, createTime int64) error {
 	return t.Client.Agent().ServiceRegister(&api.AgentServiceRegistration{
 		ID:      serviceName + "/" + nodeName,
 		Name:    serviceName,
 		Address: address,
 		Tags:    []string{nodeName},
+		Meta: map[string]string{
+			"CreateTime": fmt.Sprintf("%d", createTime),
+		},
 		Check: &api.AgentServiceCheck{
 			Interval:                       "5s",
 			Timeout:                        "1s",
@@ -58,10 +63,15 @@ func (t *ConsulProcessor) Find(serviceName string, nodeName string) (*NodeInfo, 
 	}
 
 	node := list[0]
-	return &NodeInfo{
+
+	nodeInfo := &NodeInfo{
 		NodeName: strings.Split(node.Service.ID, "/")[1],
 		Address:  node.Service.Address,
-	}, nil
+		CreateTime: 0,
+	}
+
+	nodeInfo.CreateTime, _ = strconv.ParseInt(node.Node.Meta["CreateTime"], 10, 64)
+	return nodeInfo, nil
 }
 
 // 查询所有节点
@@ -81,6 +91,7 @@ func (t *ConsulProcessor) FindAll(serviceName string) (*ServiceInfo, error) {
 			NodeName: strings.Split(node.Service.ID, "/")[1],
 			Address:  node.Service.Address,
 		}
+		service.Nodes[i].CreateTime, _ = strconv.ParseInt(node.Node.Meta["CreateTime"], 10, 64)
 	}
 
 	return service, nil

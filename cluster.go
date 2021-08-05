@@ -165,7 +165,7 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 				node := value.(*Node)
 				_, err := c.mountProcessor.Find(node.serviceName, node.nodeName)
 				if err != nil {
-					err = c.mountProcessor.MountNode(node.serviceName, node.nodeName, c.peerAddr)
+					err = c.mountProcessor.MountNode(node.serviceName, node.nodeName, c.peerAddr, time.Now().Unix())
 					if err != nil {
 						fmt.Println("[SNOW] auto mount node " + node.Name() + " fail,err = " + err.Error())
 					}
@@ -266,6 +266,7 @@ func (c *Cluster) Find(name string) (*Node, error) {
 		serviceName: serviceName,
 		nodeName:    nodeName,
 		iNode:       nil,
+		mTime: node.CreateTime,
 	}, nil
 }
 
@@ -291,6 +292,7 @@ func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 				serviceName: serviceName,
 				nodeName:    node.NodeName,
 				iNode:       nil,
+				mTime: node.CreateTime,
 			}
 		}
 
@@ -349,12 +351,6 @@ func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 		return nil, errors.New("*snow.Node must nil")
 	}
 
-	// 同步挂载到远程挂载点
-	err := c.mountProcessor.MountNode(serviceName, nodeName, c.peerAddr)
-	if err != nil {
-		return nil, err
-	}
-
 	newNode := &Node{
 		Cluster:     c,
 		addr:        c.peerAddr,
@@ -364,6 +360,12 @@ func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 		mTime:       time.Now().Unix(),
 	}
 	iNodefield.Set(reflect.ValueOf(newNode))
+
+	// 同步挂载到远程挂载点
+	err := c.mountProcessor.MountNode(serviceName, nodeName, c.peerAddr, newNode.mTime)
+	if err != nil {
+		return nil, err
+	}
 
 	// 写入本地挂载点
 	c.localNodes.Store(key, newNode)

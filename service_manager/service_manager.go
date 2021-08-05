@@ -123,10 +123,9 @@ func (s *ServiceManager) NodeInfo() NodeInfo {
 			continue
 		}
 
-		mTime, _ := item.MountTime()
 		res.Active = append(res.Active, ActiveService{
 			Name:      item.Name(),
-			MountTime: mTime,
+			MountTime: item.MountTime(),
 		})
 	}
 
