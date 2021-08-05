@@ -28,7 +28,7 @@ func TestServiceManager(t *testing.T) {
 		Service: []ServiceInfo{
 			{
 				Name: "Gate",
-				Inode: func() interface{} {
+				Inode: func() snow.INode {
 					return &User{}
 				},
 				Remark:  "网关组件",

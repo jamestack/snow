@@ -34,7 +34,7 @@ type MethodInfo struct {
 // 服务信息
 type ServiceInfo struct {
 	Name    string             // 服务名
-	Inode   func() interface{} `json:"-"` // iNode对象
+	Inode   func() snow.INode `json:"-"` // iNode对象
 	Remark  string             // 备注
 	Methods []MethodInfo       // 可执行的方法名
 	Fields  []string           // 可查看的属性

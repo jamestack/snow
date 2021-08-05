@@ -194,37 +194,36 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 		done <- sig
 	})
 
-	// 不监听
-	if c.listenAddr == "" {
-		fmt.Println("[Snow] Cluster Serve Success")
-		done = ch
-		return done, nil
+	var listener net.Listener
+	// 监听grpc
+	if c.listenAddr != "" {
+		// 开始监听grpc
+		listener, err = net.Listen("tcp", c.listenAddr)
+		if err != nil {
+			return nil, err
+		}
+
+		rpc := &PeerRpc{cluster: c}
+		// 用于支持集群间通信
+		pb.RegisterPeerRpcServer(c.server, rpc)
+		// 用于支持Consul的gRpc健康检查
+		pb.RegisterHealthServer(c.server, rpc)
+
+		// 监听rpc端口
+		c.eventPool.Go(func() {
+			defer checkPanic()
+			err = c.server.Serve(listener)
+			fmt.Println("[Snow] GRpc Serve() err:", err)
+			ch <- os.Interrupt
+		})
 	}
-
-	// 开始监听grpc
-	listener, err := net.Listen("tcp", c.listenAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	rpc := &PeerRpc{cluster: c}
-	// 用于支持集群间通信
-	pb.RegisterPeerRpcServer(c.server, rpc)
-	// 用于支持Consul的gRpc健康检查
-	pb.RegisterHealthServer(c.server, rpc)
-
-	// 监听rpc端口
-	c.eventPool.Go(func() {
-		defer checkPanic()
-		err = c.server.Serve(listener)
-		fmt.Println("[Snow] GRpc Serve() err:", err)
-		ch <- os.Interrupt
-	})
 
 	// 初始化挂载点处理器
 	err = c.mountProcessor.Init(c)
 	if err != nil {
-		_ = listener.Close()
+		if listener != nil {
+			_ = listener.Close()
+		}
 		return done, err
 	}
 
@@ -312,7 +311,7 @@ func (c *Cluster) FindLocalAll() []*Node {
 }
 
 // 挂载某节点
-func (c *Cluster) Mount(name string, iNode interface{}) (*Node, error) {
+func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 	var serviceName string
 	var nodeName string
 	name = strings.Trim(name, "/")
@@ -381,7 +380,7 @@ func (c *Cluster) Mount(name string, iNode interface{}) (*Node, error) {
 }
 
 // 挂载一个随机子节点
-func (c *Cluster) MountRandNode(serviceName string, iNode interface{}) (*Node, error) {
+func (c *Cluster) MountRandNode(serviceName string, iNode INode) (*Node, error) {
 	return c.Mount(serviceName+"/"+RandStr(6), iNode)
 }
 

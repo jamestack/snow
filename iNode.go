@@ -11,6 +11,9 @@ import (
 	"github.com/jamestack/snow/pb"
 )
 
+// 任何一个包含*Node的struct都可以视为合法的节点对象
+type INode interface {}
+
 type myErr struct {
 	S     string
 	IsNil bool

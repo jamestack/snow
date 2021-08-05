@@ -12,6 +12,8 @@ type LocalProcessor struct {
 }
 
 func (t *LocalProcessor) Init(cluster *Cluster) error {
+	t.Lock()
+	defer t.Unlock()
 	t.storage = make(map[string]*ServiceInfo)
 	return nil
 }
