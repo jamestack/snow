@@ -67,7 +67,7 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 				continue
 			}
 
-			fmt.Println("SyncLog", item)
+			fmt.Println("[Snow] Sync", item)
 
 			ns := strings.Split(item.Name, "/")
 			if item.IsAdd {
@@ -82,7 +82,7 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 	s.masterKey = ack.MasterKey
 
 	<-done
-	fmt.Println("First sync done")
+	fmt.Println("[Snow] First sync done")
 	return nil
 }
 
