@@ -3,6 +3,7 @@ package service_manager
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -69,11 +70,9 @@ func (s *ServiceManager) hNodes(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsonSuccess(res))
 }
 
-// 挂载节点
-func (s *ServiceManager) hMount(w http.ResponseWriter, r *http.Request) {
+// rpc:挂载节点
+func (s *ServiceManager) MountNode(name string) error {
 	var service *ServiceInfo
-
-	name := r.PostFormValue("name")
 	for _, item := range s.Service {
 		if item.Name == name {
 			service = &item
@@ -81,8 +80,7 @@ func (s *ServiceManager) hMount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if service == nil {
-		w.Write(jsonError(-1, "node not found"))
-		return
+		return errors.New("node not found")
 	}
 
 	var err error
@@ -93,11 +91,36 @@ func (s *ServiceManager) hMount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		w.Write(jsonError(-2, err.Error()))
+		return err
+	}
+
+	return nil
+}
+
+// 挂载节点
+func (s *ServiceManager) hMount(w http.ResponseWriter, r *http.Request) {
+
+	targetNode := r.PostFormValue("target_node")
+	name := r.PostFormValue("name")
+	if targetNode == "" || name == "" {
+		w.Write(jsonError(-1, "param not validate"))
 		return
 	}
 
-	w.Write(jsonSuccess(nil))
+	sm, err := s.Cluster.Find(targetNode)
+	if err != nil {
+		w.Write(jsonError(-1, err.Error()))
+		return
+	}
+
+	sm.Call("MountNode", name, func(err error) {
+		if err != nil {
+			w.Write(jsonError(-1, err.Error()))
+		} else {
+			w.Write(jsonSuccess(nil))
+		}
+	})
+
 }
 
 // 挂载节点

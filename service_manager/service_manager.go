@@ -33,11 +33,11 @@ type MethodInfo struct {
 
 // 服务信息
 type ServiceInfo struct {
-	Name    string             // 服务名
+	Name    string            // 服务名
 	Inode   func() snow.INode `json:"-"` // iNode对象
-	Remark  string             // 备注
-	Methods []MethodInfo       // 可执行的方法名
-	Fields  []string           // 可查看的属性
+	Remark  string            // 备注
+	Methods []MethodInfo      // 可执行的方法名
+	Fields  []string          // 可查看的属性
 }
 
 type RuntimeInfo struct {
@@ -61,7 +61,8 @@ type ActiveService struct {
 
 // 节点实例信息
 type NodeInfo struct {
-	Name        string
+	Name        string        // 节点名
+	Addr        string        // 节点地址
 	Runtime     RuntimeInfo   // go运行时信息
 	SnowVersion string        // Snow版本号
 	Os          OsInfo        // 主机信息
@@ -114,6 +115,7 @@ func (s *ServiceManager) NodeInfo() NodeInfo {
 			Ip:       ip,
 		},
 		SnowVersion: snow.Version,
+		Addr:        s.GetPeerAddr(),
 		Services:    s.Service,
 		Active:      []ActiveService{},
 	}

@@ -16,15 +16,19 @@ func (s *ServiceManager) OnMount() {
 	mux.HandleFunc("/api/node/mount", s.hMount)     // 在线节点列表
 	mux.HandleFunc("/api/node/unmount", s.hUnMount) // 在线节点列表
 
+	if s.WebListenAddr == "" {
+		fmt.Println("ServiceManager start [Not Listen]")
+		return
+	}
 	var err error
 	s.listener, err = net.Listen("tcp", s.WebListenAddr)
 	if err != nil {
 		fmt.Println("ServiceManager net.Listen() err:", err)
 		return
 	}
-	fmt.Println("ServiceManager start Listen.")
+	fmt.Println("ServiceManager start Listen:", s.WebListenAddr)
 	err = http.Serve(s.listener, mux)
-	fmt.Println("ServiceManager Stop Listen err:", err)
+	fmt.Println("ServiceManager Start Listen Fail:", err)
 }
 
 // 节点移除挂载事件

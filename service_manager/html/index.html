@@ -28,14 +28,15 @@
 	<th lay-data="{sort:true}">可启动服务</th>
 	<th lay-data="{sort:true}">已启动服务</th>
 </tr>
+{{if Data}}
 {{for Data}}
 	<tr>
 		<td>{{:#index + 1}}</td>
 		<td>
 			<table>
 			<tr><td>节点名称</td> <td>{{:Name}}</td></tr>
+			<tr><td>节点地址</td> <td>{{:Addr}}</td></tr>
 			<tr><td>Snow版本</td> <td>{{:SnowVersion}}</td></tr>
-			
 			</table>
 		</td>
 		<td>
@@ -58,13 +59,15 @@
 					<th>id</th> <th>名称</th> <th>操作</th>
 				</tr>
 
+				{{if Services}}
 				{{for Services}}
 				<tr>
 					<td>{{:#index + 1}}</td>
 					<td><a href="" title="{{:Remark}}">{{:Name}}</a></td>
-					<td> <button class="layui-btn" title="点击启动该服务" onClick="MountNode('{{:Name}}')">启动</button> </td>
+					<td> <button class="layui-btn" title="点击启动该服务" onClick="MountNode('{{:#parent.parent.data.Name}}', '{{:Name}}')">启动</button> </td>
 				</tr>
 				{{/for}}
+				{{/if}}
 			</table>
 		</td>
 		<td>
@@ -73,18 +76,21 @@
 					<th>id</th> <th>名称</th> <th>启动时间</th> <th>操作</th>
 				</tr>
 
+				{{if Active}}
 				{{for Active}}
 				<tr>
 					<td>{{:#index + 1}}</td>
-					<td><a href="">{{:Name}}</a></td>
+					<td>{{:Name}}</td>
 					<td>{{:~formatUnix(MountTime)}}</td>
 					<td> <button class="layui-btn" title="点击关闭该服务" onClick="UnMountNode('{{:Name}}')">关闭</button> </td>
 				</tr>
 				{{/for}}
+				{{/if}}
 			</table>
 		</td>
 	</tr>
 {{/for}}
+{{/if}}
 </table>
 </script>
 <script>
@@ -102,10 +108,11 @@
 		})
 	}
 
-	function MountNode(name) {
+	function MountNode(target_node, name) {
 		if (confirm("确定要启动新节点吗？")) {
 			$.ajax({
 				url: "/api/node/mount", method: "post", data: {
+					target_node: target_node,
 					name: name
 				}, success: function (res) {
 					res = eval("(" + res + ")")
