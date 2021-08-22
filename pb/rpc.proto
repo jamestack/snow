@@ -15,7 +15,7 @@ service MasterRpc {
     // 移除节点
     rpc UnMount(MountReq) returns(Empty);
     // 同步挂载点
-    rpc Sync(SyncReq) returns(stream MountLogItem);
+    rpc Sync(stream SyncReq) returns(stream MountLogItem);
 }
 
 // peer rpc
@@ -51,6 +51,7 @@ message MountReq {
 // ============= 同步挂载点 ===========
 message SyncReq {
     int64 Id = 1;
+    string Addr = 2;
 }
 message MountLogItem {
     int64  Id       = 1;

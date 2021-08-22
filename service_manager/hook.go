@@ -26,7 +26,7 @@ func (s *ServiceManager) OnMount() {
 		fmt.Println("ServiceManager net.Listen() err:", err)
 		return
 	}
-	fmt.Println("ServiceManager start Listen:", s.WebListenAddr)
+	fmt.Println("ServiceManager start [Listen: " + s.WebListenAddr + "]")
 	err = http.Serve(s.listener, mux)
 	fmt.Println("ServiceManager Start Listen Fail:", err)
 }

@@ -39,6 +39,7 @@ type Cluster struct {
 	server      *grpc.Server
 	// 唯一验证字符串
 	key string
+	closeCh chan os.Signal
 }
 
 // 初始化连接
@@ -146,53 +147,7 @@ func (c *Cluster) GrpcServer() *grpc.Server {
 
 // 开始监听本
 func (c *Cluster) Serve() (done chan os.Signal, err error) {
-	ch := make(chan os.Signal)
-	done = make(chan os.Signal)
-
-	// 执行异步任务
-	c.eventPool.Go(func() {
-		defer checkPanic()
-
-		if c.mountProcessor == nil {
-			return
-		}
-
-		for {
-			// 每隔30秒检测一次本地挂载点
-			<-time.After(30 * time.Second)
-			// 如果挂载点失效则尝试重新挂载
-			c.localNodes.Range(func(key, value interface{}) bool {
-				node := value.(*Node)
-				_, err := c.mountProcessor.Find(node.serviceName, node.nodeName)
-				if err != nil {
-					err = c.mountProcessor.MountNode(node.serviceName, node.nodeName, c.peerAddr, time.Now().Unix())
-					if err != nil {
-						fmt.Println("[SNOW] auto mount node " + node.Name() + " fail,err = " + err.Error())
-					}
-				}
-				return true
-			})
-		}
-	})
-
-	// 监听进程退出信号
-	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
-	c.eventPool.Go(func() {
-		defer checkPanic()
-		sig := <-ch
-
-		fmt.Println("[Snow] Start UnMount All Local Nodes.")
-		// 关闭取消挂载所有节点
-		c.localNodes.Range(func(key, value interface{}) bool {
-			node := value.(*Node)
-			fmt.Println("[Snow] Start UnMount " + key.(string))
-			_ = node.UnMount()
-			fmt.Println("[Snow] End UnMount " + key.(string))
-			return true
-		})
-
-		done <- sig
-	})
+	done = make(chan os.Signal, 4)
 
 	var listener net.Listener
 	// 监听grpc
@@ -214,7 +169,7 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 			defer checkPanic()
 			err = c.server.Serve(listener)
 			fmt.Println("[Snow] GRpc Serve() err:", err)
-			ch <- os.Interrupt
+			done <- os.Interrupt
 		})
 	}
 
@@ -224,10 +179,30 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 		if listener != nil {
 			_ = listener.Close()
 		}
-		return done, err
+		return nil, err
 	}
 
 	fmt.Println("[Snow] Cluster Serve Success")
+
+	// 监听进程退出信号
+	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
+	c.eventPool.Go(func() {
+		defer checkPanic()
+		sig := <-done
+
+		fmt.Println("[Snow] Start UnMount All Local Nodes.")
+		// 关闭取消挂载所有节点
+		c.localNodes.Range(func(key, value interface{}) bool {
+			node := value.(*Node)
+			fmt.Println("[Snow] Start UnMount " + key.(string))
+			err := node.UnMount()
+			fmt.Println("[Snow] End UnMount", key.(string), " err:", err)
+			return true
+		})
+
+		done <- sig
+	})
+
 	return done, nil
 }
 

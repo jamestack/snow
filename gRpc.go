@@ -159,13 +159,29 @@ func (m *MasterRpc) UnMount(ctx context.Context, req *pb.MountReq) (ack *pb.Empt
 }
 
 // 同步挂载点
-func (m *MasterRpc) Sync(req *pb.SyncReq, stream pb.MasterRpc_SyncServer) (err error) {
-	done,err := m.mountMaster.syncLog.Sync(req.Id, stream)
+func (m *MasterRpc) Sync(stream pb.MasterRpc_SyncServer) error {
+	req, err := stream.Recv()
 	if err != nil {
 		return err
 	}
 
-	<-done
+	fmt.Println("ServiceManager Addr:", req.Addr, "Start First Sync")
+
+	err = m.mountMaster.syncLog.Sync(req.Id, req.Addr, stream)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("ServiceManager Addr:", req.Addr, "End First Sync")
+
+	if _,err = stream.Recv(); err != nil {
+		fmt.Println("ServiceManager Addr:", req.Addr, "Connect Close, err:", err)
+		// 删除stream
+		m.mountMaster.syncLog.RemoveStream(stream)
+		// UnMount所有该节点的服务
+		err = m.mountMaster.UnMountAllByAddr(req.Addr)
+		return err
+	}
 
 	return nil
 }

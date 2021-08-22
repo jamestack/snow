@@ -23,6 +23,24 @@ func (m *ClusterMountProcessorMaster) Init(cluster *Cluster) error {
 	return m.localProcessor.Init(cluster)
 }
 
+func (m *ClusterMountProcessorMaster) UnMountAllByAddr(addr string) error {
+	service,err := m.localProcessor.FindAllService()
+	if err != nil {
+		return err
+	}
+	for _,s := range service {
+		for _,node := range s.Nodes {
+			if node.Address == addr {
+				err = m.UnMountNode(s.ServiceName, node.NodeName)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // 挂载节点
 func (m *ClusterMountProcessorMaster) MountNode(serviceName string, nodeName string, address string, createTime int64) (err error) {
 	err = m.localProcessor.MountNode(serviceName, nodeName, address, createTime)

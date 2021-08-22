@@ -1,6 +1,7 @@
 package snow
 
 import (
+	"fmt"
 	"github.com/jamestack/snow/pb"
 	"sync"
 )
@@ -9,13 +10,21 @@ type SyncLog struct {
 	id    int64
 	lock  sync.Mutex
 	list  []*pb.MountLogItem
-	subCh map[pb.MasterRpc_SyncServer]chan bool
+	subCh map[pb.MasterRpc_SyncServer]string
 }
 
 func NewSyncLog() *SyncLog {
 	return &SyncLog{
 		list: make([]*pb.MountLogItem, 0),
-		subCh: make(map[pb.MasterRpc_SyncServer]chan bool),
+		subCh: make(map[pb.MasterRpc_SyncServer]string),
+	}
+}
+
+func (s *SyncLog) RemoveStream(ch pb.MasterRpc_SyncServer) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if _,ok := s.subCh[ch]; ok {
+		delete(s.subCh, ch)
 	}
 }
 
@@ -34,20 +43,29 @@ func (s *SyncLog) AddLog(item *pb.MountLogItem) {
 				break
 			}
 		}
+	}else {
+		s.list = append(s.list, item)
 	}
-
-	s.list = append(s.list, item)
 
 	for ch := range s.subCh {
 		err := ch.Send(item)
 		if err != nil {
-			s.subCh[ch] <- true
 			delete(s.subCh, ch)
 		}
 	}
+
+	log(item)
 }
 
-func (s *SyncLog) Sync(id int64, ch pb.MasterRpc_SyncServer) (done chan bool, err error) {
+func log(item *pb.MountLogItem) {
+	if item.IsAdd {
+		fmt.Println("[Snow] Sync Mount Node", item.Name , "Success")
+	}else {
+		fmt.Println("[Snow] Sync UnMount Node", item.Name , "Success")
+	}
+}
+
+func (s *SyncLog) Sync(id int64, addr string, ch pb.MasterRpc_SyncServer) (err error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -55,8 +73,9 @@ func (s *SyncLog) Sync(id int64, ch pb.MasterRpc_SyncServer) (done chan bool, er
 		if item.Id > id {
 			err = ch.Send(item)
 			if err != nil {
-				return nil, err
+				return err
 			}
+			log(item)
 		}
 	}
 
@@ -64,6 +83,6 @@ func (s *SyncLog) Sync(id int64, ch pb.MasterRpc_SyncServer) (done chan bool, er
 		Id:                   -100,
 	})
 
-	s.subCh[ch] = make(chan bool)
-	return s.subCh[ch], nil
+	s.subCh[ch] = addr
+	return nil
 }
