@@ -32,7 +32,6 @@ func isErr(obj reflect.Type) bool {
 // -------------- iNode内部实现 ------------
 type Node struct {
 	*Cluster
-	addr        string
 	serviceName string
 	nodeName    string
 	iNode       interface{}
@@ -176,7 +175,11 @@ var nilValue = reflect.Zero(reflect.ValueOf(struct {
 func (i *Node) rpcCall(method string, args ...interface{}) (err error) {
 	// 远程调用
 	var rpc pb.PeerRpcClient
-	rpc, err = i.Cluster.getRpcClient(i.addr)
+	nodeInfo,err := i.mountProcessor.Find(i.serviceName, i.nodeName)
+	if err != nil {
+		return err
+	}
+	rpc, err = i.Cluster.getRpcClient(nodeInfo.Address)
 	if err != nil {
 		return err
 	}
@@ -290,7 +293,11 @@ func (i *Node) Stream(method string, args ...interface{}) (stream *Stream, err e
 			write: &x,
 		})...)
 	} else {
-		rpc, err := i.Cluster.getRpcClient(i.addr)
+		nodeInfo,err := i.mountProcessor.Find(i.serviceName, i.nodeName)
+		if err != nil {
+			return nil, err
+		}
+		rpc, err := i.Cluster.getRpcClient(nodeInfo.Address)
 		if err != nil {
 			return nil, err
 		}

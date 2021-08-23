@@ -237,7 +237,6 @@ func (c *Cluster) Find(name string) (*Node, error) {
 
 	return &Node{
 		Cluster:     c,
-		addr:        node.Address,
 		serviceName: serviceName,
 		nodeName:    nodeName,
 		iNode:       nil,
@@ -263,7 +262,6 @@ func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 		} else {
 			item = &Node{
 				Cluster:     c,
-				addr:        node.Address,
 				serviceName: serviceName,
 				nodeName:    node.NodeName,
 				iNode:       nil,
@@ -328,7 +326,6 @@ func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 
 	newNode := &Node{
 		Cluster:     c,
-		addr:        c.peerAddr,
 		serviceName: serviceName,
 		nodeName:    nodeName,
 		iNode:       iNode,
@@ -345,6 +342,8 @@ func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 	// 写入本地挂载点
 	c.localNodes.Store(key, newNode)
 
+	fmt.Println("[Snow] Mount Node", key, "Success")
+
 	if i, ok := iNode.(HookMount); ok {
 		c.eventPool.Go(func() {
 			defer checkPanic()
@@ -352,7 +351,6 @@ func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 		})
 	}
 
-	fmt.Println("[Snow] Mount Node", key, "Success")
 	return newNode, nil
 }
 
@@ -370,7 +368,11 @@ func (c *Cluster) UnMount(name string) error {
 	}
 
 	if node.IsRemote() {
-		rpc, err := c.getRpcClient(node.addr)
+		nodeInfo,err := c.mountProcessor.Find(node.serviceName, node.nodeName)
+		if err != nil {
+			return err
+		}
+		rpc, err := c.getRpcClient(nodeInfo.Address)
 		if err != nil {
 			return err
 		}
