@@ -12,6 +12,7 @@ func (s *ServiceManager) OnMount() {
 	var mux = http.NewServeMux()
 
 	mux.HandleFunc("/", s.hRoot)
+	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.FS(fs))))
 	mux.HandleFunc("/api/node/list", s.hNodes)      // 在线节点列表
 	mux.HandleFunc("/api/node/mount", s.hMount)     // 在线节点列表
 	mux.HandleFunc("/api/node/unmount", s.hUnMount) // 在线节点列表
