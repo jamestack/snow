@@ -59,7 +59,7 @@ func TestBenchNodeB(t *testing.T) {
 	log.Println("local rpc start")
 	for i := 0; i < MAX_ROUND; i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		err = jacks.Call("Play", name, func(name string) {
+		err = jacks.Call("Play", name).Then(func(name string) {
 			//fmt.Println("play done", name)
 		})
 		if err != nil {
@@ -75,7 +75,7 @@ func TestBenchNodeB(t *testing.T) {
 		panic(err)
 	}
 
-	err = james.Call("TestErr", errors.New("123"), func(str string, err error) {
+	err = james.Call("TestErr", errors.New("123")).Then(func(str string, err error) {
 		fmt.Println(str, err, err == nil, reflect.TypeOf(err))
 	})
 	fmt.Println(err)
@@ -88,7 +88,7 @@ func TestBenchNodeB(t *testing.T) {
 		name := fmt.Sprintf("section-%d", i+1)
 		wg.Add(1)
 		pool.Go(func() {
-			err = james.Call("Play", name, func(name string) {
+			err = james.Call("Play", name).Then(func(name string) {
 				//fmt.Println("play done", name)
 			})
 			wg.Done()
@@ -105,7 +105,7 @@ func TestBenchNodeB(t *testing.T) {
 	log.Println("rpc start")
 	for i := 0; i < MAX_ROUND; i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		err = james.Call("Play", name, func(name string) {
+		err = james.Call("Play", name).Then(func(name string) {
 			//fmt.Println("play done", name)
 		})
 		if err != nil {
