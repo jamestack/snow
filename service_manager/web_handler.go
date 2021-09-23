@@ -58,7 +58,7 @@ func (s *ServiceManager) hNodes(w http.ResponseWriter, r *http.Request) {
 
 	res := []NodeInfo{}
 	for _, item := range list {
-		err := item.CallAsync("NodeInfo", func(nodeInfo NodeInfo) {
+		err := item.Call("NodeInfo").Then(func(nodeInfo NodeInfo) {
 			res = append(res, nodeInfo)
 		})
 		if err != nil {
@@ -113,7 +113,7 @@ func (s *ServiceManager) hMount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sm.CallAsync("MountNode", name, func(err error) {
+	sm.Call("MountNode", name).Then(func(err error) {
 		if err != nil {
 			w.Write(jsonError(-1, err.Error()))
 		} else {
