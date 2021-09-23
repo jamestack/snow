@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/jamestack/snow"
@@ -70,6 +68,21 @@ func TestBenchNodeB(t *testing.T) {
 	log.Println("local rpc end")
 	log.Println()
 
+	// 本地异步调用
+	log.Println("local async start")
+	callback := []*snow.CallBack{}
+	for i := 0; i < MAX_ROUND; i++ {
+		name := fmt.Sprintf("section-%d", i+1)
+		callback = append(callback, jacks.CallAsync("Play", name))
+	}
+	for _, call := range callback {
+		call.Then(func(name string) {
+			// fmt.Println("play done", name)
+		})
+	}
+	log.Println("local async end")
+	log.Println()
+
 	james, err := cluster.Find("james")
 	if err != nil {
 		panic(err)
@@ -80,24 +93,18 @@ func TestBenchNodeB(t *testing.T) {
 	})
 	fmt.Println(err)
 
-	pool := snow.NewGoPool(uint32(runtime.NumCPU()) * 4)
 	// 远程异步调用
-	var wg sync.WaitGroup
 	log.Println("async rpc start")
+	callback = []*snow.CallBack{}
 	for i := 0; i < MAX_ROUND; i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		wg.Add(1)
-		pool.Go(func() {
-			err = james.Call("Play", name).Then(func(name string) {
-				//fmt.Println("play done", name)
-			})
-			wg.Done()
-			if err != nil {
-				fmt.Println("end", err)
-			}
+		callback = append(callback, james.CallAsync("Play", name))
+	}
+	for _, call := range callback {
+		call.Then(func(name string) {
+			// fmt.Println("play done", name)
 		})
 	}
-	wg.Wait()
 	log.Println("async rpc end")
 	log.Println()
 

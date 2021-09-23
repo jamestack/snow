@@ -38,7 +38,7 @@ type Cluster struct {
 	gRpcClients sync.Map // map[string]*ring.Ring
 	server      *grpc.Server
 	// 唯一验证字符串
-	key string
+	key     string
 	closeCh chan os.Signal
 }
 
@@ -60,16 +60,15 @@ func (c *Cluster) initGRpc(addr string) (conn *ring.Ring, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("initGRpc err: %v", err)
 		}
-		r.Value = pb.NewPeerRpcClient(conn)
+		// r.Value = pb.NewPeerRpcClient(conn)
+		r.Value = conn
 		r = r.Next()
 	}
 	return r, nil
 }
 
-// 获取连接
-func (c *Cluster) getRpcClient(addr string) (client pb.PeerRpcClient, err error) {
+func (c *Cluster) getGrpcConn(addr string) (conn *grpc.ClientConn, err error) {
 	var r *ring.Ring
-
 	exRing, ok := c.gRpcClients.Load(addr)
 	if !ok {
 		r, err = c.initGRpc(addr)
@@ -80,9 +79,18 @@ func (c *Cluster) getRpcClient(addr string) (client pb.PeerRpcClient, err error)
 		r = exRing.(*ring.Ring)
 	}
 
-	client = r.Value.(pb.PeerRpcClient)
+	conn = r.Value.(*grpc.ClientConn)
 	c.gRpcClients.Store(addr, r.Next())
+	return conn, nil
+}
 
+// 获取连接
+func (c *Cluster) getRpcClient(addr string) (client pb.PeerRpcClient, err error) {
+	conn, err := c.getGrpcConn(addr)
+	if err != nil {
+		return nil, err
+	}
+	client = pb.NewPeerRpcClient(conn)
 	return client, nil
 }
 
@@ -99,8 +107,8 @@ func NewClusterWithMountProcessor(listenAddr string, peerAddr string, mountProce
 		listenAddr:     listenAddr,
 		peerAddr:       peerAddr,
 		eventPool:      NewGoPool(uint32(runtime.NumCPU()) * 4),
-		server: grpc.NewServer(),
-		key: RandStr(24),
+		server:         grpc.NewServer(),
+		key:            RandStr(24),
 	}
 
 	if mountProcessor == nil {
@@ -137,7 +145,7 @@ func NewClusterMaster(listenAddr string, peerAddr string) *Cluster {
 
 func NewClusterSlave(listenAddr string, peerAddr string, masterAddr string) *Cluster {
 	return NewClusterWithMountProcessor(listenAddr, peerAddr, &ClusterMountProcessorSlave{
-		MasterAddr:     masterAddr,
+		MasterAddr: masterAddr,
 	})
 }
 
@@ -240,7 +248,7 @@ func (c *Cluster) Find(name string) (*Node, error) {
 		serviceName: serviceName,
 		nodeName:    nodeName,
 		iNode:       nil,
-		mTime: node.CreateTime,
+		mTime:       node.CreateTime,
 	}, nil
 }
 
@@ -265,7 +273,7 @@ func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 				serviceName: serviceName,
 				nodeName:    node.NodeName,
 				iNode:       nil,
-				mTime: node.CreateTime,
+				mTime:       node.CreateTime,
 			}
 		}
 
@@ -368,7 +376,7 @@ func (c *Cluster) UnMount(name string) error {
 	}
 
 	if node.IsRemote() {
-		nodeInfo,err := c.mountProcessor.Find(node.serviceName, node.nodeName)
+		nodeInfo, err := c.mountProcessor.Find(node.serviceName, node.nodeName)
 		if err != nil {
 			return err
 		}

@@ -56,11 +56,11 @@ func TestUserNode(t *testing.T) {
 		fmt.Println(err)
 	}
 
-	_ = userManager.Call("Name", func(name string) {
+	_ = userManager.CallAsync("Name").Then(func(name string) {
 		fmt.Println("call done")
 	})
 
-	err = userManager.Call("TestErr", errors.New("myErr")).Then(func(name string, err error) {
+	err = userManager.CallAsync("TestErr", errors.New("myErr")).Then(func(name string, err error) {
 		fmt.Println(name, err)
 	})
 
@@ -83,7 +83,7 @@ func TestConsul(t *testing.T) {
 	list, err := cluster.FindAll("UserManager")
 	fmt.Println(err, list)
 
-	err = userManager.Call("Name").Then(func(name string) {
+	err = userManager.CallAsync("Name").Then(func(name string) {
 		fmt.Println("call done")
 	})
 	fmt.Println("call err:", err)

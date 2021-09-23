@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"github.com/jamestack/snow/pb"
+	"google.golang.org/grpc"
 )
 
 // 任何一个包含*Node的struct都可以视为合法的节点对象
@@ -65,11 +67,23 @@ func (i *Node) UnMount() error {
 	return i.Cluster.UnMount(i.serviceName + "/" + i.nodeName)
 }
 
+type localCallback struct {
+	lock     *sync.Mutex
+	res      []reflect.Value
+	thenErr  error
+	isDone   bool
+	callback CallbackFn
+}
+
+type rpcCallback struct {
+	cs  grpc.ClientStream
+	ack *pb.CallAck
+}
+
 type CallBack struct {
-	isRpc  bool
-	res    []reflect.Value
-	rpcRes *pb.CallAck
-	err    error
+	local *localCallback
+	rpc   *rpcCallback
+	err   error
 }
 
 func (c *CallBack) Error() error {
@@ -80,23 +94,42 @@ type CallbackFn interface{}
 type Any interface{}
 
 func (c *CallBack) Then(callback CallbackFn) error {
-	if c.isRpc {
-		return c.thenRpc(callback)
-	}
-
-	return c.then(callback)
-}
-
-func (c *CallBack) then(callback CallbackFn) (err error) {
 	if callback == nil {
 		return errors.New("callback is nil")
 	}
+
+	if c.rpc != nil {
+		return c.thenRpc(callback)
+	}
+
+	c.local.lock.Lock()
 	if c.err != nil {
+		c.local.lock.Unlock()
 		return c.err
 	}
 
-	cb := reflect.ValueOf(callback)
-	if len(c.res) != cb.Type().NumIn() {
+	isRun := false
+	if c.local.callback == nil {
+		c.local.callback = callback
+		if c.local.isDone {
+			isRun = true
+		}
+	} else {
+		c.local.lock.Unlock()
+		return errors.New("repeat Then()")
+	}
+	c.local.lock.Unlock()
+
+	if isRun {
+		return c.then()
+	}
+
+	return c.local.thenErr
+}
+
+func (c *CallBack) then() (err error) {
+	cb := reflect.ValueOf(c.local.callback)
+	if len(c.local.res) != cb.Type().NumIn() {
 		return errors.New("cb args length not match")
 	}
 
@@ -108,7 +141,7 @@ func (c *CallBack) then(callback CallbackFn) (err error) {
 		}
 	}()
 
-	cb.Call(c.res)
+	cb.Call(c.local.res)
 
 	return nil
 }
@@ -117,12 +150,26 @@ func (c *CallBack) thenRpc(callback CallbackFn) (err error) {
 	cb := reflect.ValueOf(callback)
 	cbt := cb.Type()
 	cbn := cbt.NumIn()
-	if len(c.rpcRes.Args) != cbn {
+
+	var rpcRes *pb.CallAck
+
+	if c.rpc.ack == nil {
+		rpcRes = &pb.CallAck{}
+		err = c.rpc.cs.RecvMsg(rpcRes)
+		if err != nil {
+			return err
+		}
+	} else {
+		rpcRes = c.rpc.ack
+	}
+
+	if len(rpcRes.Args) != cbn {
 		return errors.New("remote return length not match callback func args")
 	}
 	cin := make([]reflect.Value, cbn)
 	reader := bytes.NewReader(nil)
 	decoder := gob.NewDecoder(reader)
+
 	for i := 0; i < cbn; i++ {
 		it := cbt.In(i)
 		if isErr(it) {
@@ -134,7 +181,7 @@ func (c *CallBack) thenRpc(callback CallbackFn) (err error) {
 			isPtr = true
 		}
 		nw := reflect.New(it)
-		reader.Reset(c.rpcRes.Args[i])
+		reader.Reset(rpcRes.Args[i])
 		err := decoder.DecodeValue(nw)
 		if err != nil {
 			return fmt.Errorf("remote args[%d] decode err: %v", i, err)
@@ -163,19 +210,31 @@ func (c *CallBack) thenRpc(callback CallbackFn) (err error) {
 }
 
 // 执行方法调用
+func (i *Node) CallAsync(method string, args ...Any) (callback *CallBack) {
+	// 本地调用
+	if i.IsLocal() {
+		return i.call(method, true, args...)
+	} else {
+		return i.callRpc(method, true, args...)
+	}
+}
+
+// 执行方法调用
 func (i *Node) Call(method string, args ...Any) (callback *CallBack) {
 	// 本地调用
 	if i.IsLocal() {
-		return i.call(method, args...)
+		return i.call(method, false, args...)
 	} else {
-		return i.callRpc(method, args...)
+		return i.callRpc(method, false, args...)
 	}
 }
 
 // 本地执行
-func (i *Node) call(method string, args ...Any) (callback *CallBack) {
+func (i *Node) call(method string, async bool, args ...Any) (callback *CallBack) {
 	callback = &CallBack{
-		isRpc: false,
+		local: &localCallback{
+			lock: &sync.Mutex{},
+		},
 	}
 
 	if i == nil {
@@ -215,7 +274,31 @@ func (i *Node) call(method string, args ...Any) (callback *CallBack) {
 			return
 		}
 	}()
-	callback.res = fn()
+	if async {
+		_, callback.err = i.eventPool.Go(func() {
+			if pErr := recover(); pErr != nil {
+				printStack(pErr)
+				callback.local.thenErr = fmt.Errorf("%v", pErr)
+				callback.local.isDone = true
+				return
+			}
+
+			callback.local.res = fn()
+			callback.local.isDone = true
+			isRun := false
+			callback.local.lock.Lock()
+			if callback.local.callback != nil {
+				isRun = true
+			}
+			callback.local.lock.Unlock()
+			if isRun {
+				callback.local.thenErr = callback.then()
+			}
+		})
+	} else {
+		callback.local.res = fn()
+		callback.local.isDone = true
+	}
 	return
 }
 
@@ -225,31 +308,15 @@ var nilValue = reflect.Zero(reflect.ValueOf(struct {
 	Err error
 }{}).Field(0).Type())
 
-func (i *Node) callRpc(method string, args ...Any) (callback *CallBack) {
+var unaryStreamDesc = &grpc.StreamDesc{ServerStreams: false, ClientStreams: false}
+
+func (i *Node) callRpc(method string, async bool, args ...Any) (callback *CallBack) {
 	callback = &CallBack{
-		isRpc: true,
+		rpc: &rpcCallback{},
 	}
 	if i == nil {
 		callback.err = errors.New("iNode is nil")
 		return
-	}
-	// 远程调用
-	var rpc pb.PeerRpcClient
-	nodeInfo, err := i.mountProcessor.Find(i.serviceName, i.nodeName)
-	if err != nil {
-		callback.err = err
-		return
-	}
-	rpc, err = i.Cluster.getRpcClient(nodeInfo.Address)
-	if err != nil {
-		callback.err = err
-		return
-	}
-	req := &pb.CallReq{
-		ServiceName: i.serviceName,
-		NodeName:    i.nodeName,
-		Method:      method,
-		Args:        nil,
 	}
 
 	var vl []reflect.Value
@@ -269,6 +336,13 @@ func (i *Node) callRpc(method string, args ...Any) (callback *CallBack) {
 		vl = append(vl, at)
 	}
 
+	req := &pb.CallReq{
+		ServiceName: i.serviceName,
+		NodeName:    i.nodeName,
+		Method:      method,
+		Args:        nil,
+	}
+
 	req.Args = make([][]byte, len(vl))
 	buff := bytes.NewBuffer([]byte{})
 	encoder := gob.NewEncoder(buff)
@@ -282,7 +356,31 @@ func (i *Node) callRpc(method string, args ...Any) (callback *CallBack) {
 		buff.Reset()
 	}
 
-	callback.rpcRes, callback.err = rpc.Call(context.TODO(), req)
+	nodeInfo, err := i.mountProcessor.Find(i.serviceName, i.nodeName)
+	if err != nil {
+		callback.err = err
+		return
+	}
+
+	conn, err := i.Cluster.getGrpcConn(nodeInfo.Address)
+	if err != nil {
+		callback.err = err
+		return
+	}
+
+	cs, err := conn.NewStream(context.Background(), unaryStreamDesc, "/pb.PeerRpc/Call")
+	if err != nil {
+		callback.err = err
+		return
+	}
+
+	callback.rpc.cs = cs
+	callback.err = cs.SendMsg(req)
+
+	if callback.err == nil && async == false {
+		callback.rpc.ack = &pb.CallAck{}
+		callback.err = cs.RecvMsg(callback.rpc.ack)
+	}
 	return
 }
 
@@ -294,7 +392,7 @@ func (i *Node) Stream(method string, args ...Any) (stream *Stream, err error) {
 		write: &y,
 	}
 	if i.IsLocal() {
-		err = i.call(method, append(args, &Stream{
+		err = i.call(method, false, append(args, &Stream{
 			read:  &y,
 			write: &x,
 		})...).Error()
