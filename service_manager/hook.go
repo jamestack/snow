@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 )
 
 // 节点挂载事件
 func (s *ServiceManager) OnMount() {
+
+	s.startTime = time.Now().Unix()
 
 	var mux = http.NewServeMux()
 
@@ -27,6 +30,7 @@ func (s *ServiceManager) OnMount() {
 		fmt.Println("ServiceManager net.Listen() err:", err)
 		return
 	}
+
 	fmt.Println("ServiceManager start [Listen: " + s.WebListenAddr + "]")
 	err = http.Serve(s.listener, mux)
 	fmt.Println("ServiceManager Start Listen Fail:", err)

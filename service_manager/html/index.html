@@ -19,10 +19,10 @@
 
 <script type="text/x-jsrender" id="t-node_list">
 <table class="layui-table">
-<caption>节点列表</caption>
+<caption>Snow集群节点列表</caption>
 <tr>
 	<th lay-data="{sort:true}">id</th>
-	<th lay-data="{sort:true}">节点</td>
+	<th lay-data="{sort:true}">集群节点</td>
 	<th lay-data="{sort:true}">宿主机</td>
 	<th lay-data="{sort:true}">Go运行时</th>
 	<th lay-data="{sort:true}">可启动服务</th>
@@ -37,6 +37,7 @@
 			<tr><td>节点名称</td> <td>{{:Name}}</td></tr>
 			<tr><td>节点地址</td> <td>{{:Addr}}</td></tr>
 			<tr><td>Snow版本</td> <td>{{:SnowVersion}}</td></tr>
+			<tr><td>启动时间</td> <td>{{:~formatUnix(Time)}}</td></tr>
 			</table>
 		</td>
 		<td>
@@ -109,7 +110,7 @@
 	}
 
 	function MountNode(target_node, name) {
-		if (confirm("确定要启动新节点吗？")) {
+		if (confirm("确定要启动新服务实例吗？")) {
 			$.ajax({
 				url: "/api/node/mount", method: "post", data: {
 					target_node: target_node,
@@ -131,7 +132,7 @@
 	}
 
 	function UnMountNode(name) {
-		if (confirm("确定要关闭该节点吗？")) {
+		if (confirm("确定要关闭该服务实例吗？")) {
 			$.ajax({
 				url: "/api/node/unmount", method: "post", data: {
 					name: name

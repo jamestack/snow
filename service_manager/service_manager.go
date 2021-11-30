@@ -12,6 +12,7 @@ import (
 
 type ServiceManager struct {
 	*snow.Node
+	startTime     int64
 	listener      net.Listener
 	Service       []ServiceInfo // 可启动的服务定义
 	WebListenAddr string        // 是否启动web管理界面
@@ -63,6 +64,7 @@ type ActiveService struct {
 type NodeInfo struct {
 	Name        string        // 节点名
 	Addr        string        // 节点地址
+	Time        int64         // 启动时间
 	Runtime     RuntimeInfo   // go运行时信息
 	SnowVersion string        // Snow版本号
 	Os          OsInfo        // 主机信息
@@ -102,6 +104,7 @@ func (s *ServiceManager) NodeInfo() NodeInfo {
 	}
 	res := NodeInfo{
 		Name: s.Name(),
+		Time: s.startTime,
 		Runtime: RuntimeInfo{
 			GOOS:         runtime.GOOS,
 			GOARCH:       runtime.GOARCH,
