@@ -9,7 +9,7 @@ type Entity struct {
 	tower *Tower // 所属灯塔
 	id    int64  // 实体唯一id
 	name  string
-	pos   Position               // 实体的位置
+	pos   *Position              // 实体的位置
 	Attrs map[string]interface{} // 属性列表
 }
 
@@ -49,5 +49,8 @@ func (e *Entity) SubBroadcast() {
 
 // 广播给周围实体
 func (e *Entity) BroadCast(event string) {
+	for _, tower := range e.tower.GetInterestTowers(e.pos) {
+		tower.BroadCast(event)
+	}
 
 }

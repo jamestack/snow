@@ -1,9 +1,9 @@
 package aoi
 
 type Scene struct {
-	towers  map[int64]*Tower
-	entitys map[int64]*Entity
-	_id     int64
+	towers    map[int64]*Tower
+	entitys   map[int64]*Entity
+	_incretId int64
 }
 
 // 每个格子的宽度
@@ -31,8 +31,8 @@ func getTowerIdByNx(nx, ny int32) int64 {
 	return int64(nx)<<32 + int64(ny)
 }
 
-func getTowerIdByPos(posX, posY float64) int64 {
-	nx, ny := getTowerNxNy(posX, posY)
+func getTowerIdByPos(pos *Position) int64 {
+	nx, ny := getTowerNxNy(pos.x, pos.y)
 	return getTowerIdByNx(nx, ny)
 }
 
@@ -41,10 +41,11 @@ func getTowerPos(nx, ny int32) (posX, posY float64) {
 }
 
 // 获取感兴趣的灯塔id
-func getInterestTowerIds(posX, posY float64) (ids []int64) {
-	nx, ny := getTowerNxNy(posX, posY)
+func getInterestTowerIds(pos *Position) (ids []int64) {
+	nx, ny := getTowerNxNy(pos.x, pos.y)
 	tx, ty := getTowerPos(nx, ny)
 
+	posX, posY := pos.x, pos.y
 	// 计算实体塔内相对位置
 	posX -= tx
 	posY -= ty
@@ -86,7 +87,7 @@ func getInterestTowerIds(posX, posY float64) (ids []int64) {
 
 	// 左下
 	if posX < xL && posY < yL {
-		ids = append(ids, getTowerIdByNx(nx-1, ny-1))
+		ids = append(ids, getTowerIdByNx(nx-1, ny+1))
 	}
 
 	// 左上
@@ -101,40 +102,60 @@ func (s *Scene) GetTowerById(id int64) *Tower {
 	return s.towers[id]
 }
 
-// 通过坐标获取灯塔(是否初始化)
-func (s *Scene) GetTowerByPos(posX, posY float64) *Tower {
-	return s.towers[getTowerIdByPos(posX, posY)]
+// 通过坐标获取灯塔
+func (s *Scene) GetTowerByPos(pos *Position) *Tower {
+	return s.towers[getTowerIdByPos(pos)]
 }
 
-func (s *Scene) GetInterestTowers(posX, posY float64) (list []*Tower) {
-	ids := getInterestTowerIds(posX, posY)
+func (s *Scene) CreateTowerByPos(pos *Position) *Tower {
+	id := getTowerIdByPos(pos)
+	tower, ok := s.towers[id]
+	if ok {
+		return tower
+	}
+	tower = &Tower{
+		scene:   s,
+		id:      id,
+		entitys: make(map[int64]*Entity),
+	}
+	s.towers[id] = tower
+	return tower
+}
+
+func (t *Tower) GetInterestTowers(pos *Position) (list []*Tower) {
+	list = append(list, t)
+	ids := getInterestTowerIds(pos)
 	for _, id := range ids {
-		list = append(list, s.GetTowerById(id))
+		tower := t.scene.GetTowerById(id)
+		if tower != nil {
+			list = append(list, tower)
+		}
 	}
 	return
 }
 
 func (s *Scene) newId() int64 {
-	s._id += 1
-	return s._id
+	s._incretId += 1
+	return s._incretId
 }
 
-// func (s *Scene) CreateEntity(name string, pos Position) *Entity {
-// 	tower := s.GetTowerById()
+func (s *Scene) CreateEntity(name string, pos *Position) *Entity {
+	tower := s.CreateTowerByPos(pos)
 
-// 	entity := &Entity{
-// 		scene: s,
-// 		tower: tower,
-// 		id:    s.newId(),
-// 		name:  name,
-// 		pos:   pos,
-// 		Attrs: map[string]interface{}{},
-// 	}
+	entity := &Entity{
+		scene: s,
+		tower: tower,
+		id:    s.newId(),
+		name:  name,
+		pos:   pos,
+		Attrs: map[string]interface{}{},
+	}
 
-// 	tower.entitys[entity.id] = entity
+	tower.entitys[entity.id] = entity
+	s.entitys[entity.id] = entity
 
-// 	return entity
-// }
+	return entity
+}
 
 //
 func (s *Scene) GetEntityById(id int64) *Entity {
