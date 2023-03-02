@@ -4,21 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/jamestack/snow/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/metadata"
-	"strings"
-	"time"
 )
 
 // 本地挂载点处理器抽象
 type ClusterMountProcessorSlave struct {
 	localProcessor *LocalProcessor
-	MasterAddr string
-	rpcClient pb.MasterRpcClient
-	masterKey string
-	ctx context.Context
+	MasterAddr     string
+	rpcClient      pb.MasterRpcClient
+	masterKey      string
+	ctx            context.Context
 }
 
 var ErrGRpcDialFail = errors.New("GRpc Connect Fail")
@@ -41,10 +42,10 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 
 	masterRpc := pb.NewMasterRpcClient(conn)
 
-	ack,err := masterRpc.Register(ctx, &pb.RegisterReq{
+	ack, err := masterRpc.Register(ctx, &pb.RegisterReq{
 		PeerNode:  cluster.GetPeerAddr(),
-		SlaveKey: cluster.ClusterKey(),
-		MasterKey: "",  // 暂时不验证MasterKey，每次都全量拉取
+		SlaveKey:  cluster.ClusterKey(),
+		MasterKey: "", // 暂时不验证MasterKey，每次都全量拉取
 	})
 
 	if err != nil {
@@ -54,13 +55,13 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 	s.ctx = ctx
 	s.rpcClient = masterRpc
 
-	syncStream,err := s.rpcClient.Sync(ctx)
+	syncStream, err := s.rpcClient.Sync(ctx)
 	if err != nil {
 		return err
 	}
 
 	err = syncStream.Send(&pb.SyncReq{
-		Id: 0,
+		Id:   0,
 		Addr: cluster.GetPeerAddr(),
 	})
 	if err != nil {
@@ -70,7 +71,7 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 	done := make(chan bool)
 	go func() {
 		for {
-			item,err := syncStream.Recv()
+			item, err := syncStream.Recv()
 			if err != nil {
 				fmt.Println("syncStream.Recv()", err)
 				_ = conn.Close()
@@ -84,10 +85,10 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 
 			ns := strings.Split(item.Name, "/")
 			if item.IsAdd {
-				fmt.Println("[Snow] Sync Mount Node", item.Name , "Success")
+				// fmt.Println("[Snow] Sync Mount Node", item.Name, "Success")
 				_ = s.localProcessor.MountNode(ns[0], ns[1], item.PeerAddr, item.Time)
-			}else {
-				fmt.Println("[Snow] Sync UnMount Node", item.Name , "Success")
+			} else {
+				// fmt.Println("[Snow] Sync UnMount Node", item.Name, "Success")
 				_ = s.localProcessor.UnMountNode(ns[0], ns[1])
 			}
 
@@ -111,22 +112,22 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 		fmt.Println("Master GRpc Conn Disconnect", conn.GetState())
 		// 删除本地节点
 		s.localProcessor.Init(cluster)
-		for i := 1;;i++ {
+		for i := 1; ; i++ {
 			err := s.Init(cluster)
 
 			if err != nil {
 				if err == ErrGRpcDialFail || err == ErrGRpcRegisterFail {
 					fmt.Println("Reconnect", s.MasterAddr, i, "s Fail, Continue, err:", err)
-					<-time.After(1*time.Second)
+					<-time.After(1 * time.Second)
 					continue
 				}
 				fmt.Println("Reconnect", s.MasterAddr, i, "s", "Fail err:", err)
-			}else {
+			} else {
 				fmt.Println("Reconnect", s.MasterAddr, i, "s", "Success")
 				// 同步所有本地节点
-				for _,node := range cluster.FindLocalAll() {
+				for _, node := range cluster.FindLocalAll() {
 					strs := strings.Split(node.Name(), "/")
-					_ = s.MountNode(strs[0], strs[1], node.GetPeerAddr(), node.mTime)
+					_ = s.MountNode(strs[0], strs[1], node.Cluster().GetPeerAddr(), node.MountTime())
 				}
 			}
 
@@ -139,16 +140,16 @@ func (s *ClusterMountProcessorSlave) Init(cluster *Cluster) error {
 
 // 挂载节点
 func (s *ClusterMountProcessorSlave) MountNode(serviceName string, nodeName string, address string, createTime int64) (err error) {
-	_,err = s.rpcClient.Mount(s.ctx, &pb.MountReq{
-		Name: serviceName+"/"+nodeName,
+	_, err = s.rpcClient.Mount(s.ctx, &pb.MountReq{
+		Name: serviceName + "/" + nodeName,
 	})
 	return
 }
 
 // 移除挂载节点
 func (s *ClusterMountProcessorSlave) UnMountNode(serviceName string, nodeName string) (err error) {
-	_,err = s.rpcClient.UnMount(s.ctx, &pb.MountReq{
-		Name: serviceName+"/"+nodeName,
+	_, err = s.rpcClient.UnMount(s.ctx, &pb.MountReq{
+		Name: serviceName + "/" + nodeName,
 	})
 	return
 }

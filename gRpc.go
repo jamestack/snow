@@ -6,19 +6,20 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/jamestack/snow/pb"
-	"google.golang.org/grpc/metadata"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jamestack/snow/pb"
+	"google.golang.org/grpc/metadata"
 )
 
 // ======================== 主节点 ===========================
 type MasterRpc struct {
-	cluster  *Cluster
+	cluster     *Cluster
 	mountMaster *ClusterMountProcessorMaster
-	session sync.Map
+	session     sync.Map
 }
 
 type session struct {
@@ -26,7 +27,7 @@ type session struct {
 }
 
 func (m *MasterRpc) getSession(ctx context.Context) *session {
-	md,ok := metadata.FromIncomingContext(ctx)
+	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil
 	}
@@ -36,7 +37,7 @@ func (m *MasterRpc) getSession(ctx context.Context) *session {
 		return nil
 	}
 
-	exSession,ok := m.session.Load(ids[0])
+	exSession, ok := m.session.Load(ids[0])
 	if !ok {
 		sess := &session{}
 		m.session.Store(ids[0], sess)
@@ -48,7 +49,7 @@ func (m *MasterRpc) getSession(ctx context.Context) *session {
 var emptyMsg = &pb.Empty{}
 
 // 心跳
-func (m *MasterRpc) Ping(ctx context.Context,req *pb.Empty) (ack *pb.Empty, err error) {
+func (m *MasterRpc) Ping(ctx context.Context, req *pb.Empty) (ack *pb.Empty, err error) {
 	ack = emptyMsg
 	sess := m.getSession(ctx)
 	if sess == nil {
@@ -174,7 +175,7 @@ func (m *MasterRpc) Sync(stream pb.MasterRpc_SyncServer) error {
 
 	fmt.Println("ServiceManager Addr:", req.Addr, "End First Sync")
 
-	if _,err = stream.Recv(); err != nil {
+	if _, err = stream.Recv(); err != nil {
 		fmt.Println("ServiceManager Addr:", req.Addr, "Connect Close, err:", err)
 		// 删除stream
 		m.mountMaster.syncLog.RemoveStream(stream)
@@ -211,9 +212,12 @@ func (p *PeerRpc) Call(ctx context.Context, req *pb.CallReq) (ack *pb.CallAck, e
 			printStack(errPanic)
 			err = fmt.Errorf("PeerRpc.Call() panic: %v", errPanic)
 		}
+		if err != nil {
+			printStack(err)
+		}
 	}()
 
-	node, err := p.cluster.Find(req.ServiceName + "/" + req.NodeName)
+	node, err := p.cluster.Find(req.ServiceName)
 	if err != nil {
 		err = errors.New("node not found: " + err.Error())
 		return
@@ -223,7 +227,7 @@ func (p *PeerRpc) Call(ctx context.Context, req *pb.CallReq) (ack *pb.CallAck, e
 		err = errors.New("not found node")
 		return
 	}
-	vf := reflect.ValueOf(node.iNode)
+	vf := reflect.ValueOf(node.rPC())
 	vm := vf.MethodByName(req.Method)
 
 	vmt := vm.Type()
@@ -238,9 +242,9 @@ func (p *PeerRpc) Call(ctx context.Context, req *pb.CallReq) (ack *pb.CallAck, e
 	decoder := gob.NewDecoder(reader)
 	for i := 0; i < fn; i++ {
 		tp := vmt.In(i)
-		if isErr(tp) {
-			tp = reflect.TypeOf(&myErr{})
-		}
+		// if isErr(tp) {
+		// 	tp = reflect.TypeOf(&myErr{})
+		// }
 		isPtr := false
 		if tp.Kind() == reflect.Ptr {
 			tp = tp.Elem()
@@ -257,16 +261,16 @@ func (p *PeerRpc) Call(ctx context.Context, req *pb.CallReq) (ack *pb.CallAck, e
 
 		if isPtr {
 			fin[i] = nw
-			if e := nw.Interface().(*myErr); e.IsNil {
-				fin[i] = nilValue
-			}
+			// if e := nw.Interface().(*myErr); e.IsNil {
+			// 	fin[i] = nilValue
+			// }
 		} else {
 			fin[i] = nw.Elem()
 		}
 	}
 
 	var fout []reflect.Value
-	if i, ok := node.iNode.(HookCall); ok {
+	if i, ok := node.rPC().(HookCall); ok {
 		fout = i.OnCall(req.Method, vm.Call, fin)
 	} else {
 		fout = vm.Call(fin)
@@ -278,13 +282,13 @@ func (p *PeerRpc) Call(ctx context.Context, req *pb.CallReq) (ack *pb.CallAck, e
 	buff := bytes.NewBuffer([]byte{})
 	encoder := gob.NewEncoder(buff)
 	for i, v := range fout {
-		if isErr(v.Type()) {
-			if v.IsNil() || v.Interface().(*myErr) == nil {
-				v = reflect.ValueOf(&myErr{S: "", IsNil: true})
-			} else {
-				v = reflect.ValueOf(&myErr{S: v.Interface().(error).Error(), IsNil: false})
-			}
-		}
+		// if isErr(v.Type()) {
+		// 	if v.IsNil() || v.Interface().(error) == nil {
+		// 		v = reflect.ValueOf(&myErr{S: "", IsNil: true})
+		// 	} else {
+		// 		v = reflect.ValueOf(&myErr{S: v.Interface().(error).Error(), IsNil: false})
+		// 	}
+		// }
 		if v.Kind() == reflect.Ptr {
 			v = v.Elem()
 		}
@@ -319,7 +323,7 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 		return errors.New("StreamReq not CallReq")
 	}
 
-	node, err := p.cluster.Find(req.ServiceName + "/" + req.NodeName)
+	node, err := p.cluster.Find(req.ServiceName)
 	if err != nil {
 		err = errors.New("node not found: " + err.Error())
 		return
@@ -329,13 +333,13 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 		err = errors.New("not found node")
 		return
 	}
-	vf := reflect.ValueOf(node.iNode)
+	vf := reflect.ValueOf(node.rPC())
 	vm := vf.MethodByName(req.Method)
 
 	vmt := vm.Type()
 
 	fn := vmt.NumIn()
-	if fn != len(req.Args)+1 {
+	if fn != len(req.Args) {
 		err = errors.New("call args length not match")
 		return
 	}
@@ -343,11 +347,11 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 	reader := bytes.NewReader(nil)
 	decoder := gob.NewDecoder(reader)
 
-	for i := 0; i < fn-1; i++ {
+	for i := 0; i < fn; i++ {
 		tp := vmt.In(i)
-		if isErr(tp) {
-			tp = reflect.TypeOf(&myErr{})
-		}
+		// if isErr(tp) {
+		// 	tp = reflect.TypeOf(&myErr{})
+		// }
 		isPtr := false
 		if tp.Kind() == reflect.Ptr {
 			tp = tp.Elem()
@@ -364,24 +368,37 @@ func (p *PeerRpc) Stream(stream pb.PeerRpc_StreamServer) (err error) {
 
 		if isPtr {
 			fin[i] = nw
-			if e := nw.Interface().(*myErr); e.IsNil {
-				fin[i] = nilValue
-			}
+			// if e := nw.Interface().(*myErr); e.IsNil {
+			// 	fin[i] = nilValue
+			// }
 		} else {
 			fin[i] = nw.Elem()
 		}
 	}
 
 	// 注入rpcStream
-	fin[len(fin)-1] = reflect.ValueOf(&Stream{
-		rpcServer: stream,
-	})
+	// stream := &Stream{
+	// 	rpcServer: stream,
+	// }
+	p.cluster.pushStream(req.ServiceName+"."+req.Method, stream)
 
-	if i, ok := node.iNode.(HookCall); ok {
-		_ = i.OnCall(req.Method, vm.Call, fin)
+	var fout []reflect.Value
+	if i, ok := node.rPC().(HookCall); ok {
+		fout = i.OnCall(req.Method, vm.Call, fin)
 	} else {
-		_ = vm.Call(fin)
+		fout = vm.Call(fin)
 	}
+
+	if len(fout) != 2 {
+		err = fmt.Errorf("StreamCall %s result length != 2, length = %d", req.Method, len(fout))
+		return
+	}
+
+	if !fout[1].IsNil() {
+		err = fmt.Errorf("%s", fout[1].String())
+		return
+	}
+
 	return nil
 }
 

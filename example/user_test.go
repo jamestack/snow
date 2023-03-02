@@ -9,11 +9,11 @@ import (
 )
 
 type Root struct {
-	*snow.Node
+	*snow.Node[Root]
 }
 
 type User struct {
-	*snow.Node
+	*snow.Node[User]
 	name string
 }
 
@@ -27,10 +27,9 @@ func (u *User) TestErr(req error) (string, error) {
 
 // 挂载回调
 func (u *User) OnMount() {
-	fmt.Println("mount")
+	fmt.Println("(u *User) OnMount() ")
 }
 
-//
 func (u *User) OnUnMount() {
 	fmt.Println("unmount")
 }
@@ -49,22 +48,27 @@ func TestUserNode(t *testing.T) {
 	cluster := snow.NewClusterWithConsul("127.0.0.1:8001", "127.0.0.1:8001")
 	_, _ = cluster.Serve()
 
-	userManager, err := cluster.Mount("UserManager", &User{
+	userManager, err := snow.Mount(cluster, "UserManager", &User{
 		name: "james",
 	})
+	// userManager, err := cluster.Mount("UserManager", &User{
+	// 	name: "james",
+	// })
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	_ = userManager.CallAsync("Name").Then(func(name string) {
-		fmt.Println("call done")
-	})
+	res := userManager.RPC.Name()
+	fmt.Println("call done", res)
+	// _ = userManager.CallAsync("Name").Then(func(name string) {
+	// 	fmt.Println("call done")
+	// })
 
-	err = userManager.CallAsync("TestErr", errors.New("myErr")).Then(func(name string, err error) {
-		fmt.Println(name, err)
-	})
+	// err = userManager.CallAsync("TestErr", errors.New("myErr")).Then(func(name string, err error) {
+	// 	fmt.Println(name, err)
+	// })
 
-	fmt.Println("call err:", err)
+	fmt.Println(userManager.RPC.TestErr(errors.New("myErr")))
 }
 
 func TestConsul(t *testing.T) {
@@ -74,18 +78,21 @@ func TestConsul(t *testing.T) {
 		<-done
 	}()
 
-	userManager, err := cluster.Mount("UserManager", &User{
-		name: "james",
-	})
+	// userManager, err := snow.Mount(cluster, "UserManager", &User{
+	// 	name: "james",
+	// })
+	// userManager, err := cluster.Mount("UserManager", &User{
+	// 	name: "james",
+	// })
 
-	fmt.Println(err)
+	// fmt.Println(err)
 
 	list, err := cluster.FindAll("UserManager")
 	fmt.Println(err, list)
 
-	err = userManager.CallAsync("Name").Then(func(name string) {
-		fmt.Println("call done")
-	})
+	// err = userManager.CallAsync("Name").Then(func(name string) {
+	// 	fmt.Println("call done")
+	// })
 	fmt.Println("call err:", err)
 
 }

@@ -8,7 +8,7 @@ import (
 
 // 游戏节点对象
 type Game struct {
-	*snow.Node
+	*snow.Node[Game]
 }
 
 // 网关消息处理

@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -137,7 +139,9 @@ func init() {
 	proto.RegisterType((*HealthCheckResponse)(nil), "grpc.health.v1.HealthCheckResponse")
 }
 
-func init() { proto.RegisterFile("consul_check.proto", fileDescriptor_fb0ffbb53ea60106) }
+func init() {
+	proto.RegisterFile("consul_check.proto", fileDescriptor_fb0ffbb53ea60106)
+}
 
 var fileDescriptor_fb0ffbb53ea60106 = []byte{
 	// 248 bytes of a gzipped FileDescriptorProto
@@ -161,11 +165,11 @@ var fileDescriptor_fb0ffbb53ea60106 = []byte{
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
-var _ grpc.ClientConn
+var _ grpc.ClientConnInterface
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
+const _ = grpc.SupportPackageIsVersion6
 
 // HealthClient is the client API for Health service.
 //
@@ -176,10 +180,10 @@ type HealthClient interface {
 }
 
 type healthClient struct {
-	cc *grpc.ClientConn
+	cc grpc.ClientConnInterface
 }
 
-func NewHealthClient(cc *grpc.ClientConn) HealthClient {
+func NewHealthClient(cc grpc.ClientConnInterface) HealthClient {
 	return &healthClient{cc}
 }
 
@@ -228,6 +232,17 @@ func (x *healthWatchClient) Recv() (*HealthCheckResponse, error) {
 type HealthServer interface {
 	Check(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
 	Watch(*HealthCheckRequest, Health_WatchServer) error
+}
+
+// UnimplementedHealthServer can be embedded to have forward compatible implementations.
+type UnimplementedHealthServer struct {
+}
+
+func (*UnimplementedHealthServer) Check(ctx context.Context, req *HealthCheckRequest) (*HealthCheckResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Check not implemented")
+}
+func (*UnimplementedHealthServer) Watch(req *HealthCheckRequest, srv Health_WatchServer) error {
+	return status.Errorf(codes.Unimplemented, "method Watch not implemented")
 }
 
 func RegisterHealthServer(s *grpc.Server, srv HealthServer) {

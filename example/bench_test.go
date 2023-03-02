@@ -5,17 +5,33 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"reflect"
 	"testing"
+	"time"
 
 	"github.com/jamestack/snow"
 )
 
 func (u *User) Play(name string) string {
-	// 模拟长连接
-	//<-time.After(5*time.Second)
+	return snow.Response(u.Node, func() string {
+		return name
+	}, name)
+}
 
-	return name
+func (u *User) Read(id int) (*snow.Stream, error) {
+	return snow.StreamResponse(u.Node, func(stream *snow.Stream) {
+		fmt.Println("accept", id, stream)
+		// go func() {
+		for {
+			data, err := stream.ReadData()
+			if err != nil {
+				fmt.Println("stream.ReadData()", err)
+				return
+			}
+			fmt.Println("user server receve", string(data))
+			fmt.Println(stream.Write(data))
+		}
+		// }()
+	}, id)
 }
 
 func init() {
@@ -26,12 +42,31 @@ func TestBenchNodeA(t *testing.T) {
 	cluster := snow.NewClusterMaster("127.0.0.1:8000", "127.0.0.1:8000")
 	done, err := cluster.Serve()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("err_str:[" + err.Error() + "]")
 		return
 	}
 
-	_, err = cluster.Mount("james", &User{name: "james"})
-	fmt.Println(err)
+	james, err := snow.Mount(cluster, "james", &User{name: "james"})
+	// james.RPC.node = james
+	// _, err = cluster.Mount("james", &User{name: "james"})
+	fmt.Println("Mount() james", err)
+
+	stream, err := james.RPC.Read(100)
+	if err != nil {
+		fmt.Println("james.RPC.Read() err:", err)
+	}
+
+	fmt.Println("local stream start", stream)
+
+	stream.Write([]byte("1"))
+	stream.ReadData()
+	stream.Write([]byte("2"))
+	stream.ReadData()
+	stream.Write([]byte("3"))
+	stream.ReadData()
+	stream.Close()
+
+	fmt.Println("local stream end")
 
 	s := <-done
 	fmt.Println("Got signal:", s)
@@ -45,83 +80,73 @@ func TestBenchNodeB(t *testing.T) {
 		return
 	}
 
-	jacks, err := cluster.Mount("jacks", &User{name: "jacks"})
+	jacks, err := snow.Mount(cluster, "jacks", &User{name: "jacks"})
+	// jacks.RPC.node = jacks
+	// jacks, err := cluster.Mount("jacks", &User{name: "jacks"})
 	if err != nil {
 		fmt.Println("mount", err)
 		return
 	}
 
-	var MAX_ROUND = 100000
+	// var MAX_ROUND = 100000
+	var MAX_ROUND = 1
 
 	// 本地调用
 	log.Println("local rpc start")
 	for i := 0; i < MAX_ROUND; i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		err = jacks.Call("Play", name).Then(func(name string) {
-			//fmt.Println("play done", name)
-		})
-		if err != nil {
-			fmt.Println("end", err)
-			return
-		}
+		res := jacks.RPC.Play(name)
+		// _ = res
+		fmt.Println("local play done", res)
 	}
 	log.Println("local rpc end")
 	log.Println()
 
-	// 本地异步调用
-	log.Println("local async start")
-	callback := []*snow.CallBack{}
-	for i := 0; i < MAX_ROUND; i++ {
-		name := fmt.Sprintf("section-%d", i+1)
-		callback = append(callback, jacks.CallAsync("Play", name))
-	}
-	for _, call := range callback {
-		call.Then(func(name string) {
-			// fmt.Println("play done", name)
-		})
-	}
-	log.Println("local async end")
-	log.Println()
+	// return
 
-	james, err := cluster.Find("james")
+	james, err := snow.Find[User](cluster, "james")
+	// james.RPC.node = james
+	// james, err := cluster.Find("james")
 	if err != nil {
 		panic(err)
 	}
 
-	err = james.Call("TestErr", errors.New("123")).Then(func(str string, err error) {
-		fmt.Println(str, err, err == nil, reflect.TypeOf(err))
-	})
-	fmt.Println(err)
-
-	// 远程异步调用
-	log.Println("async rpc start")
-	callback = []*snow.CallBack{}
-	for i := 0; i < MAX_ROUND; i++ {
-		name := fmt.Sprintf("section-%d", i+1)
-		callback = append(callback, james.CallAsync("Play", name))
-	}
-	for _, call := range callback {
-		call.Then(func(name string) {
-			// fmt.Println("play done", name)
-		})
-	}
-	log.Println("async rpc end")
-	log.Println()
+	// err = james.Call("TestErr", errors.New("123")).Then(func(str string, err error) {
+	// 	fmt.Println(str, err, err == nil, reflect.TypeOf(err))
+	// })
+	// fmt.Println(err)
 
 	// 远程调用
-	log.Println("rpc start")
+	log.Println("remote rpc start")
 	for i := 0; i < MAX_ROUND; i++ {
 		name := fmt.Sprintf("section-%d", i+1)
-		err = james.Call("Play", name).Then(func(name string) {
-			//fmt.Println("play done", name)
-		})
+		res := james.RPC.Play(name)
+		// _ = res
+		fmt.Println("remote rpc play done", res)
 		if err != nil {
 			fmt.Println("end", err)
 			return
 		}
 	}
-	log.Println("rpc end")
+	log.Println("remote rpc end")
 	log.Println()
 
-	//<-time.After(30*time.Second)
+	stream, err := james.RPC.Read(100)
+	if err != nil {
+		fmt.Println("remote james.RPC.Read() err:", err)
+	}
+
+	fmt.Println("remote stream start", stream)
+
+	stream.Write([]byte("1"))
+	fmt.Println(stream.ReadData())
+	stream.Write([]byte("2"))
+	fmt.Println(stream.ReadData())
+	stream.Write([]byte("3"))
+	fmt.Println(stream.ReadData())
+	stream.Close()
+
+	fmt.Println("remote stream end")
+
+	<-time.After(30 * time.Second)
 }

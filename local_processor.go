@@ -24,8 +24,8 @@ func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address 
 	defer t.Unlock()
 
 	newNode := &NodeInfo{
-		NodeName: nodeName,
-		Address:  address,
+		NodeName:   nodeName,
+		Address:    address,
 		CreateTime: createTime,
 	}
 	exService, ok := t.storage[serviceName]
@@ -37,7 +37,7 @@ func (t *LocalProcessor) MountNode(serviceName string, nodeName string, address 
 		return nil
 	}
 
-	for _,item := range exService.Nodes {
+	for _, item := range exService.Nodes {
 		if item.NodeName == nodeName {
 			return errors.New("already mounted")
 		}

@@ -16,9 +16,12 @@ func TestClusterMountMaster(t *testing.T) {
 		return
 	}
 
-	master.Mount("test", &User{
+	snow.Mount(master, "test", &User{
 		name: "james",
 	})
+	// master.Mount("test", &User{
+	// 	name: "james",
+	// })
 
 	<-done
 }
@@ -32,14 +35,17 @@ func TestClusterMountSlave(t *testing.T) {
 		return
 	}
 
-	node, err := master.Find("test")
+	node, err := snow.Find[User](master, "test")
+	// node, err := master.Find("test")
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	node.CallAsync("Name").Then(func(res string) {
-		fmt.Println("name:", res)
-	})
+	res := node.RPC.Name()
+	fmt.Println("name:", res)
+	// node.CallAsync("Name").Then(func(res string) {
+	// 	fmt.Println("name:", res)
+	// })
 
 	<-done
 }

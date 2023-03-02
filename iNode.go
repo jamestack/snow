@@ -7,457 +7,293 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
+	"runtime"
+	"strings"
 
 	"github.com/jamestack/snow/pb"
 	"google.golang.org/grpc"
 )
 
-// 任何一个包含*Node的struct都可以视为合法的节点对象
-type INode interface{}
-
-type myErr struct {
-	S     string
-	IsNil bool
+func init() {
+	// gob.Register(myErr{})
 }
 
-func (e *myErr) Error() string {
-	return e.S
+type INode interface {
+	rPC() any
+	IsLocal() bool
+	IsRemote() bool
+	ServiceName() string
+	NodeName() string
+	Name() string
+	MountTime() int64
+	UnMount() error
+	Cluster() *Cluster
 }
 
-var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
+// type myErr struct {
+// 	S     string
+// 	IsNil bool
+// }
 
-func isErr(obj reflect.Type) bool {
-	return obj.Implements(errorInterface)
+// func (e *myErr) Error() string {
+// 	return e.S
+// }
+
+// var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
+
+// func isErr(obj reflect.Type) bool {
+// 	return obj.Implements(errorInterface)
+// }
+
+type Node[T any] struct {
+	isLocal     bool
+	RPC         *T
+	cluster     *Cluster // 所属集群
+	serviceName string   // 服务名
+	nodeName    string   // 节点名
+	mTime       int64    // 挂载时间
 }
 
-// -------------- iNode内部实现 ------------
-type Node struct {
-	*Cluster
-	serviceName string
-	nodeName    string
-	iNode       interface{}
-	mTime       int64 // 挂载时间
+func (n *Node[T]) IsLocal() bool {
+	return n.isLocal
 }
 
-// 是否为本地节点
-func (i *Node) IsLocal() bool {
-	_, ok := i.localNodes.Load(i.serviceName + "/" + i.nodeName)
-	return ok
+func (n *Node[T]) IsRemote() bool {
+	return !n.isLocal
 }
 
-// 是否为远程节点
-func (i *Node) IsRemote() bool {
-	_, ok := i.localNodes.Load(i.serviceName + "/" + i.nodeName)
-	return !ok
+func (n *Node[T]) ServiceName() string {
+	return n.serviceName
 }
 
-// 节点名
-func (i *Node) Name() string {
-	return i.serviceName + "/" + i.nodeName
+func (n *Node[T]) NodeName() string {
+	return n.nodeName
+}
+
+func (n *Node[T]) Name() string {
+	return n.serviceName + "/" + n.nodeName
+}
+
+func (n *Node[T]) rPC() any {
+	return n.RPC
 }
 
 // 挂载时间
-func (i *Node) MountTime() int64 {
+func (i *Node[T]) MountTime() int64 {
 	return i.mTime
 }
 
 // 取消挂载
-func (i *Node) UnMount() error {
-	return i.Cluster.UnMount(i.serviceName + "/" + i.nodeName)
+func (i *Node[T]) UnMount() error {
+	return UnMount[T](i.cluster, i.Name())
 }
 
-type localCallback struct {
-	lock     *sync.Mutex
-	res      []reflect.Value
-	thenErr  error
-	isDone   bool
-	callback CallbackFn
+func (i *Node[T]) Cluster() *Cluster {
+	return i.cluster
 }
 
-type rpcCallback struct {
-	cs  grpc.ClientStream
-	ack *pb.CallAck
-}
-
-type CallBack struct {
-	local *localCallback
-	rpc   *rpcCallback
-	err   error
-}
-
-func (c *CallBack) Error() error {
-	return c.err
-}
-
-type CallbackFn interface{}
-type Any interface{}
-
-func (c *CallBack) Then(callback CallbackFn) error {
-	if callback == nil {
-		return errors.New("callback is nil")
-	}
-
-	if c.rpc != nil {
-		return c.thenRpc(callback)
-	}
-
-	c.local.lock.Lock()
-	if c.err != nil {
-		c.local.lock.Unlock()
-		return c.err
-	}
-
-	isRun := false
-	if c.local.callback == nil {
-		c.local.callback = callback
-		if c.local.isDone {
-			isRun = true
-		}
-	} else {
-		c.local.lock.Unlock()
-		return errors.New("repeat Then()")
-	}
-	c.local.lock.Unlock()
-
-	if isRun {
-		return c.then()
-	}
-
-	return c.local.thenErr
-}
-
-func (c *CallBack) then() (err error) {
-	cb := reflect.ValueOf(c.local.callback)
-	if len(c.local.res) != cb.Type().NumIn() {
-		return errors.New("cb args length not match")
-	}
-
-	defer func() {
-		if pErr := recover(); pErr != nil {
-			printStack(pErr)
-			err = fmt.Errorf("%v", pErr)
-			return
-		}
-	}()
-
-	cb.Call(c.local.res)
-
-	return nil
-}
-
-func (c *CallBack) thenRpc(callback CallbackFn) (err error) {
-	cb := reflect.ValueOf(callback)
-	cbt := cb.Type()
-	cbn := cbt.NumIn()
-
-	var rpcRes *pb.CallAck
-
-	if c.rpc.ack == nil {
-		rpcRes = &pb.CallAck{}
-		err = c.rpc.cs.RecvMsg(rpcRes)
-		if err != nil {
-			return err
-		}
-	} else {
-		rpcRes = c.rpc.ack
-	}
-
-	if len(rpcRes.Args) != cbn {
-		return errors.New("remote return length not match callback func args")
-	}
-	cin := make([]reflect.Value, cbn)
-	reader := bytes.NewReader(nil)
-	decoder := gob.NewDecoder(reader)
-
-	for i := 0; i < cbn; i++ {
-		it := cbt.In(i)
-		if isErr(it) {
-			it = reflect.TypeOf(&myErr{})
-		}
-		isPtr := false
-		if it.Kind() == reflect.Ptr {
-			it = it.Elem()
-			isPtr = true
-		}
-		nw := reflect.New(it)
-		reader.Reset(rpcRes.Args[i])
-		err := decoder.DecodeValue(nw)
-		if err != nil {
-			return fmt.Errorf("remote args[%d] decode err: %v", i, err)
-		}
-
-		if e, ok := nw.Interface().(*myErr); ok && e.IsNil {
-			nw = nilValue
-		}
-
-		if isPtr {
-			cin[i] = nw
-		} else {
-			cin[i] = nw.Elem()
-		}
-	}
-
-	defer func() {
-		errPanic := recover()
-		if errPanic != nil {
-			printStack(errPanic)
-			err = fmt.Errorf("node.thenRpc() panic: %v", errPanic)
-		}
-	}()
-	cb.Call(cin)
-	return
-}
-
-// 执行方法调用
-func (i *Node) CallAsync(method string, args ...Any) (callback *CallBack) {
-	// 本地调用
-	if i.IsLocal() {
-		return i.call(method, true, args...)
-	} else {
-		return i.callRpc(method, true, args...)
-	}
-}
-
-// 执行方法调用
-func (i *Node) Call(method string, args ...Any) (callback *CallBack) {
-	// 本地调用
-	if i.IsLocal() {
-		return i.call(method, false, args...)
-	} else {
-		return i.callRpc(method, false, args...)
-	}
-}
-
-// 本地执行
-func (i *Node) call(method string, async bool, args ...Any) (callback *CallBack) {
-	callback = &CallBack{
-		local: &localCallback{
-			lock: &sync.Mutex{},
-		},
-	}
-
-	if i == nil {
-		callback.err = errors.New("iNode is nil")
-		return
-	}
-
-	methodValue := reflect.ValueOf(i.iNode).MethodByName(method)
-
-	if methodValue.Kind() != reflect.Func {
-		callback.err = errors.New("not found method " + method)
-		return
-	}
-
-	if methodValue.Type().NumIn() != len(args) {
-		callback.err = errors.New("method args length not match")
-		return
-	}
-
-	// method call
-	params := make([]reflect.Value, len(args))
-	for i, v := range args {
-		params[i] = reflect.ValueOf(v)
-	}
-
-	fn := func() []reflect.Value {
-		if i, ok := i.iNode.(HookCall); ok {
-			return i.OnCall(method, methodValue.Call, params)
-		}
-		return methodValue.Call(params)
-	}
-
-	defer func() {
-		if pErr := recover(); pErr != nil {
-			printStack(pErr)
-			callback.err = fmt.Errorf("%v", pErr)
-			return
-		}
-	}()
-	if async {
-		_, callback.err = i.eventPool.Go(func() {
-			if pErr := recover(); pErr != nil {
-				printStack(pErr)
-				callback.local.thenErr = fmt.Errorf("%v", pErr)
-				callback.local.isDone = true
-				return
-			}
-
-			callback.local.res = fn()
-			callback.local.isDone = true
-			isRun := false
-			callback.local.lock.Lock()
-			if callback.local.callback != nil {
-				isRun = true
-			}
-			callback.local.lock.Unlock()
-			if isRun {
-				callback.local.thenErr = callback.then()
-			}
-		})
-	} else {
-		callback.local.res = fn()
-		callback.local.isDone = true
-	}
-	return
-}
-
-// 由于reflect.Call()无法传入nil值(会报Zero Value错误)，并且就算成功Call((*myErr)(nil))成功，也会出现err == nil会为true的情况（而该又确实是nil,调用时也会触发nil point panic)
-// 所以这儿使用了发现的@hack写法，希望寻求更好的reflect.Call(nil)写法。
+// // 由于reflect.Call()无法传入nil值(会报Zero Value错误)，并且就算成功Call((*myErr)(nil))成功，也会出现err == nil会为true的情况（而该又确实是nil,调用时也会触发nil point panic)
+// // 所以这儿使用了发现的@hack写法，希望寻求更好的reflect.Call(nil)写法。
 var nilValue = reflect.Zero(reflect.ValueOf(struct {
 	Err error
 }{}).Field(0).Type())
 
 var unaryStreamDesc = &grpc.StreamDesc{ServerStreams: false, ClientStreams: false}
 
-func (i *Node) callRpc(method string, async bool, args ...Any) (callback *CallBack) {
-	callback = &CallBack{
-		rpc: &rpcCallback{},
+func Response[Res any, NodeType any](node *Node[NodeType], fn func() Res, args ...any) Res {
+	if node.IsLocal() {
+		return fn()
 	}
-	if i == nil {
-		callback.err = errors.New("iNode is nil")
-		return
+
+	pc, _, _, ok := runtime.Caller(1)
+	if !ok {
+		panic("Response runtime.Caller(1) !ok")
+	}
+
+	method_path := runtime.FuncForPC(pc).Name()
+	method_name := method_path[strings.LastIndex(method_path, ".")+1:]
+
+	mv := reflect.ValueOf(node.RPC).MethodByName(method_name)
+	if mv.IsZero() {
+		panic("method " + method_name + "not found")
+	}
+
+	req := &pb.CallReq{
+		ServiceName: node.Name(),
+		Method:      method_name,
+		Args:        nil,
+	}
+
+	if len(args) > 0 {
+		req.Args = make([][]byte, len(args))
+		buff := bytes.NewBuffer([]byte{})
+		encoder := gob.NewEncoder(buff)
+		for i, v := range args {
+			// var err error
+			// if isErr(reflect.TypeOf(v)) {
+			// 	fmt.Println("wwdferfe")
+			// 	err = encoder.Encode(&myErr{S: v.(error).Error(), IsNil: reflect.ValueOf(v).IsNil() || v.(error) == nil})
+			// } else {
+			// 	err = encoder.Encode(v)
+			// }
+			err := encoder.Encode(v)
+			if err != nil {
+				panic(err)
+			}
+			req.Args[i] = buff.Bytes()
+			buff.Reset()
+		}
+	}
+
+	nodeInfo, err := node.cluster.mountProcessor.Find(node.ServiceName(), node.NodeName())
+	if err != nil {
+		panic(err)
+	}
+
+	conn, err := node.cluster.getGrpcConn(nodeInfo.Address)
+	if err != nil {
+		panic(err)
+	}
+
+	cs, err := conn.NewStream(context.Background(), unaryStreamDesc, "/pb.PeerRpc/Call")
+	if err != nil {
+		panic(err)
+	}
+
+	err = cs.SendMsg(req)
+	if err != nil {
+		panic(err)
+	}
+
+	rpcRes := &pb.CallAck{}
+	err = cs.RecvMsg(rpcRes)
+	if err != nil {
+		panic(err)
+	}
+
+	var res Res
+
+	if len(rpcRes.Args) > 0 {
+		reader := bytes.NewReader(nil)
+		decoder := gob.NewDecoder(reader)
+		reader.Reset(rpcRes.Args[0])
+		err = decoder.Decode(&res)
+		if err != nil {
+			// if strings.Contains(err.Error(), "myErr") {
+			// 	tmpErr := myErr{}
+			// 	fmt.Println(err)
+			// 	reader.Reset(rpcRes.Args[0])
+			// 	err = decoder.Decode(&tmpErr)
+			// 	fmt.Println("tmpErr:", tmpErr, err)
+			// } else {
+			// 	panic(err)
+			// }
+			panic(err)
+		}
+	}
+
+	return res
+}
+
+func StreamResponse[NodeType any](node *Node[NodeType], fn func(stream *Stream), args ...any) (*Stream, error) {
+	pc, _, _, ok := runtime.Caller(1)
+	if !ok {
+		return nil, errors.New("Response runtime.Caller(1) !ok")
+	}
+
+	method_path := runtime.FuncForPC(pc).Name()
+	method_name := method_path[strings.LastIndex(method_path, ".")+1:]
+
+	mv := reflect.ValueOf(node.RPC).MethodByName(method_name)
+	if mv.IsZero() {
+		return nil, errors.New("method " + method_name + "not found")
+	}
+
+	if node.IsLocal() {
+		exStream := node.cluster.popStream(node.Name() + "." + method_name)
+		if exStream != nil {
+			stream := &Stream{
+				rpcServer: exStream,
+			}
+			fn(stream)
+			return stream, nil
+		} else {
+			x := make(chan []byte)
+			y := make(chan []byte)
+			stream := &Stream{
+				read:  &x,
+				write: &y,
+			}
+
+			go fn(stream)
+			stream = &Stream{
+				read:  &y,
+				write: &x,
+			}
+			return stream, nil
+		}
+	}
+
+	nodeInfo, err := node.cluster.mountProcessor.Find(node.serviceName, node.nodeName)
+	if err != nil {
+		return nil, err
+	}
+	rpc, err := node.cluster.getRpcClient(nodeInfo.Address)
+	if err != nil {
+		return nil, err
+	}
+	rpcStream, err := rpc.Stream(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+	stream := &Stream{
+		rpcClient: rpcStream,
+	}
+	req := &pb.CallReq{
+		ServiceName: node.serviceName + "/" + node.nodeName,
+		Method:      method_name,
+		Args:        [][]byte{},
 	}
 
 	var vl []reflect.Value
 	for _, ai := range args {
 		at := reflect.ValueOf(ai)
-		if ai == nil || isErr(at.Type()) {
-			if ai == nil {
-				at = reflect.ValueOf(&myErr{S: "", IsNil: true})
-			} else {
-				at = reflect.ValueOf(&myErr{S: ai.(error).Error(), IsNil: false})
-			}
-		}
+
+		// if ai == nil || isErr(at.Type()) {
+		// 	if ai == nil {
+		// 		at = reflect.ValueOf(&myErr{S: "", IsNil: true})
+		// 	} else {
+		// 		at = reflect.ValueOf(&myErr{S: ai.(error).Error(), IsNil: false})
+		// 	}
+		// }
 
 		if at.Kind() == reflect.Ptr {
 			at = at.Elem()
 		}
+		if at.Kind() == reflect.Func {
+			continue
+		}
 		vl = append(vl, at)
 	}
-
-	req := &pb.CallReq{
-		ServiceName: i.serviceName,
-		NodeName:    i.nodeName,
-		Method:      method,
-		Args:        nil,
-	}
-
 	req.Args = make([][]byte, len(vl))
 	buff := bytes.NewBuffer([]byte{})
 	encoder := gob.NewEncoder(buff)
 	for i, v := range vl {
 		err := encoder.EncodeValue(v)
 		if err != nil {
-			callback.err = fmt.Errorf("call args[%d] encode err:%v", i, err)
-			return
+			return nil, fmt.Errorf("call args[%d] encode err:%v", i, err)
 		}
 		req.Args[i] = buff.Bytes()
 		buff.Reset()
 	}
 
-	nodeInfo, err := i.mountProcessor.Find(i.serviceName, i.nodeName)
+	err = rpcStream.Send(&pb.StreamMsg{
+		StreamType: &pb.StreamMsg_Req{
+			Req: req,
+		},
+	})
 	if err != nil {
-		callback.err = err
-		return
+		return nil, err
 	}
-
-	conn, err := i.Cluster.getGrpcConn(nodeInfo.Address)
-	if err != nil {
-		callback.err = err
-		return
-	}
-
-	cs, err := conn.NewStream(context.Background(), unaryStreamDesc, "/pb.PeerRpc/Call")
-	if err != nil {
-		callback.err = err
-		return
-	}
-
-	callback.rpc.cs = cs
-	callback.err = cs.SendMsg(req)
-
-	if callback.err == nil && async == false {
-		callback.rpc.ack = &pb.CallAck{}
-		callback.err = cs.RecvMsg(callback.rpc.ack)
-	}
-	return
-}
-
-func (i *Node) Stream(method string, args ...Any) (stream *Stream, err error) {
-	x := make(chan []byte)
-	y := make(chan []byte)
-	stream = &Stream{
-		read:  &x,
-		write: &y,
-	}
-	if i.IsLocal() {
-		err = i.call(method, false, append(args, &Stream{
-			read:  &y,
-			write: &x,
-		})...).Error()
-		return stream, err
-	} else {
-		nodeInfo, err := i.mountProcessor.Find(i.serviceName, i.nodeName)
-		if err != nil {
-			return nil, err
-		}
-		rpc, err := i.Cluster.getRpcClient(nodeInfo.Address)
-		if err != nil {
-			return nil, err
-		}
-		rpcStream, err := rpc.Stream(context.TODO())
-		if err != nil {
-			return nil, err
-		}
-		stream.rpcClient = rpcStream
-		req := &pb.CallReq{
-			ServiceName: i.serviceName,
-			NodeName:    i.nodeName,
-			Method:      method,
-			Args:        [][]byte{},
-		}
-
-		var vl []reflect.Value
-		for _, ai := range args {
-			at := reflect.ValueOf(ai)
-
-			if ai == nil || isErr(at.Type()) {
-				if ai == nil {
-					at = reflect.ValueOf(&myErr{S: "", IsNil: true})
-				} else {
-					at = reflect.ValueOf(&myErr{S: ai.(error).Error(), IsNil: false})
-				}
-			}
-
-			if at.Kind() == reflect.Ptr {
-				at = at.Elem()
-			}
-			if at.Kind() == reflect.Func {
-				continue
-			}
-			vl = append(vl, at)
-		}
-		req.Args = make([][]byte, len(vl))
-		buff := bytes.NewBuffer([]byte{})
-		encoder := gob.NewEncoder(buff)
-		for i, v := range vl {
-			err := encoder.EncodeValue(v)
-			if err != nil {
-				return nil, fmt.Errorf("call args[%d] encode err:%v", i, err)
-			}
-			req.Args[i] = buff.Bytes()
-			buff.Reset()
-		}
-
-		err = rpcStream.Send(&pb.StreamMsg{
-			StreamType: &pb.StreamMsg_Req{
-				Req: req,
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-		return stream, nil
-	}
+	return stream, nil
 }

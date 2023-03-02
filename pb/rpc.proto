@@ -71,9 +71,8 @@ message CheckKeyReq {
 
 message CallReq {
     string ServiceName = 1;
-    string NodeName = 2;
-    string Method  = 3;
-    repeated bytes Args = 4;
+    string Method  = 2;
+    repeated bytes Args = 3;
 }
 
 message CallAck {

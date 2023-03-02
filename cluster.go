@@ -25,6 +25,7 @@ type Cluster struct {
 	rpcLock     sync.Mutex
 	findLock    sync.Mutex
 	findAllLock sync.Mutex
+	streamLock  sync.Mutex
 	eventPool   *GoPool
 	// 挂载点处理器
 	mountProcessor IMountProcessor
@@ -40,12 +41,44 @@ type Cluster struct {
 	// 唯一验证字符串
 	key     string
 	closeCh chan os.Signal
+
+	rpcStream map[string][]pb.PeerRpc_StreamServer // map[string][]*rpcReq
+}
+
+func (c *Cluster) pushStream(key string, req pb.PeerRpc_StreamServer) {
+	c.streamLock.Lock()
+	defer c.streamLock.Unlock()
+
+	exList, ok := c.rpcStream[key]
+	if ok {
+		c.rpcStream[key] = append(exList, req)
+	} else {
+		c.rpcStream[key] = []pb.PeerRpc_StreamServer{req}
+	}
+}
+
+func (c *Cluster) popStream(key string) (res pb.PeerRpc_StreamServer) {
+	c.streamLock.Lock()
+	defer c.streamLock.Unlock()
+
+	exList, ok := c.rpcStream[key]
+	if ok {
+		if len(exList) > 0 {
+			res = exList[0]
+			c.rpcStream[key] = exList[1:]
+		}
+		return res
+	} else {
+		return nil
+	}
 }
 
 // 初始化连接
 func (c *Cluster) initGRpc(addr string) (conn *ring.Ring, err error) {
 	c.rpcLock.Lock()
 	defer c.rpcLock.Unlock()
+
+	c.rpcStream = make(map[string][]pb.PeerRpc_StreamServer)
 
 	if exRing, ok := c.gRpcClients.Load(addr); ok {
 		return exRing.(*ring.Ring), nil
@@ -201,9 +234,9 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 		fmt.Println("[Snow] Start UnMount All Local Nodes.")
 		// 关闭取消挂载所有节点
 		c.localNodes.Range(func(key, value interface{}) bool {
-			node := value.(*Node)
+			// node := value.(*Node)
 			fmt.Println("[Snow] Start UnMount " + key.(string))
-			err := node.UnMount()
+			// err := node.UnMount()
 			fmt.Println("[Snow] End UnMount", key.(string), " err:", err)
 			return true
 		})
@@ -215,7 +248,7 @@ func (c *Cluster) Serve() (done chan os.Signal, err error) {
 }
 
 // 查找某节点
-func (c *Cluster) Find(name string) (*Node, error) {
+func Find[T any](c *Cluster, name string) (*Node[T], error) {
 	var serviceName string
 	var nodeName string
 	name = strings.Trim(name, "/")
@@ -234,7 +267,7 @@ func (c *Cluster) Find(name string) (*Node, error) {
 	key := serviceName + "/" + nodeName
 	// 本地节点
 	if node, ok := c.localNodes.Load(key); ok {
-		return node.(*Node), nil
+		return node.(*Node[T]), nil
 	}
 
 	// 远程节点
@@ -243,37 +276,86 @@ func (c *Cluster) Find(name string) (*Node, error) {
 		return nil, err
 	}
 
-	return &Node{
-		Cluster:     c,
+	var t T
+	n := &Node[T]{
+		isLocal:     false,
+		cluster:     c,
 		serviceName: serviceName,
 		nodeName:    nodeName,
-		iNode:       nil,
+		RPC:         &t,
+		mTime:       node.CreateTime,
+	}
+
+	_, ok := reflect.TypeOf(&t).Elem().FieldByName("Node")
+	if ok {
+		fmt.Println("no zero")
+		vt := reflect.ValueOf(&t).Elem().FieldByName("Node")
+		vt.Set(reflect.ValueOf(n))
+	}
+	return n, nil
+}
+
+func (c *Cluster) Find(name string) (INode, error) {
+	var serviceName string
+	var nodeName string
+	name = strings.Trim(name, "/")
+	list := strings.Split(name, "/")
+	switch len(list) {
+	case 1:
+		serviceName = list[0]
+		nodeName = "Master"
+	case 2:
+		serviceName = list[0]
+		nodeName = list[1]
+	default:
+		return nil, errors.New("mount name not validate: [" + name + "]")
+	}
+
+	key := serviceName + "/" + nodeName
+	// 本地节点
+	if node, ok := c.localNodes.Load(key); ok {
+		return node.(INode), nil
+	}
+
+	// 远程节点
+	node, err := c.mountProcessor.Find(serviceName, nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Node[any]{
+		isLocal:     false,
+		cluster:     c,
+		serviceName: serviceName,
+		nodeName:    nodeName,
+		RPC:         nil,
 		mTime:       node.CreateTime,
 	}, nil
 }
 
 // 查询节点列表
-func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
+func (c *Cluster) FindAll(serviceName string) ([]INode, error) {
 	// 远程节点
 	service, err := c.mountProcessor.FindAll(serviceName)
 	if err != nil {
 		return nil, err
 	}
 
-	list := []*Node{}
+	list := []INode{}
 	for _, node := range service.Nodes {
-		var item *Node
+		var item INode
 
 		iNode, ok := c.localNodes.Load(serviceName + "/" + node.NodeName)
 		if ok {
-			item = iNode.(*Node)
+			item = iNode.(INode)
 		} else {
-			item = &Node{
-				Cluster:     c,
+			item = &Node[any]{
+				isLocal:     false,
+				cluster:     c,
 				serviceName: serviceName,
 				nodeName:    node.NodeName,
-				iNode:       nil,
-				mTime:       node.CreateTime,
+				// iNode:       nil,
+				mTime: node.CreateTime,
 			}
 		}
 
@@ -284,17 +366,17 @@ func (c *Cluster) FindAll(serviceName string) ([]*Node, error) {
 }
 
 // 查询所有本机节点
-func (c *Cluster) FindLocalAll() []*Node {
-	list := []*Node{}
+func (c *Cluster) FindLocalAll() []INode {
+	list := []INode{}
 	c.localNodes.Range(func(_, value interface{}) bool {
-		list = append(list, value.(*Node))
+		list = append(list, value.(INode))
 		return true
 	})
 	return list
 }
 
 // 挂载某节点
-func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
+func Mount[T any](c *Cluster, name string, iNode *T) (*Node[T], error) {
 	var serviceName string
 	var nodeName string
 	name = strings.Trim(name, "/")
@@ -323,23 +405,21 @@ func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 		return nil, errors.New("must pointer")
 	}
 
-	if field, ok := reflect.TypeOf(iNode).Elem().FieldByName("Node"); !ok || !field.Anonymous {
-		return nil, errors.New("not found Anonymous Field *snow.Node")
-	}
-
-	iNodefield := vf.Elem().FieldByName("Node")
-	if !iNodefield.IsNil() {
-		return nil, errors.New("*snow.Node must nil")
-	}
-
-	newNode := &Node{
-		Cluster:     c,
+	newNode := &Node[T]{
+		isLocal:     true,
+		cluster:     c,
 		serviceName: serviceName,
 		nodeName:    nodeName,
-		iNode:       iNode,
+		RPC:         iNode,
 		mTime:       time.Now().Unix(),
 	}
-	iNodefield.Set(reflect.ValueOf(newNode))
+
+	if _, ok := reflect.TypeOf(iNode).Elem().FieldByName("Node"); ok {
+		iNodefield := vf.Elem().FieldByName("Node")
+		if iNodefield.IsNil() {
+			iNodefield.Set(reflect.ValueOf(newNode))
+		}
+	}
 
 	// 同步挂载到远程挂载点
 	err := c.mountProcessor.MountNode(serviceName, nodeName, c.peerAddr, newNode.mTime)
@@ -352,7 +432,7 @@ func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 
 	fmt.Println("[Snow] Mount Node", key, "Success")
 
-	if i, ok := iNode.(HookMount); ok {
+	if i, ok := any(iNode).(HookMount); ok {
 		c.eventPool.Go(func() {
 			defer checkPanic()
 			i.OnMount()
@@ -363,14 +443,19 @@ func (c *Cluster) Mount(name string, iNode INode) (*Node, error) {
 }
 
 // 挂载一个随机子节点
-func (c *Cluster) MountRandNode(serviceName string, iNode INode) (*Node, error) {
-	return c.Mount(serviceName+"/"+RandStr(6), iNode)
+func MountRandNode[T any](c *Cluster, serviceName string, iNode *T) (*Node[T], error) {
+	return Mount(c, serviceName+"/"+RandStr(6), iNode)
 }
 
+// 挂载一个随机子节点
+// func (c *Cluster) MountRandNode(serviceName string, iNode INode) (*Node[T], error) {
+// 	return c.Mount(serviceName+"/"+RandStr(6), iNode)
+// }
+
 // 取消挂载某节点
-func (c *Cluster) UnMount(name string) error {
+func UnMount[T any](c *Cluster, name string) error {
 	// 检测是否为本地挂载点，拒绝取消挂载远程节点
-	node, err := c.Find(name)
+	node, err := Find[T](c, name)
 	if err != nil {
 		return err
 	}
@@ -398,7 +483,7 @@ func (c *Cluster) UnMount(name string) error {
 	// 写入本地挂载点
 	c.localNodes.Delete(node.serviceName + "/" + node.nodeName)
 
-	if i, ok := node.iNode.(HookUnMount); ok {
+	if i, ok := any(node.RPC).(HookUnMount); ok {
 		func() {
 			defer checkPanic()
 			i.OnUnMount()
